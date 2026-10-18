@@ -9,20 +9,20 @@ FrameBroadcaster::FrameBroadcaster(
         unsigned short port,
         TextMessageHandler onTextMessage,
         InitialTextMessageProvider initialTextMessageProvider
-    ): ioc_(ioc), acceptor_(ioc), onTextMessage_(std::move(onTextMessage)),
-       initialTextMessageProvider_(std::move(initialTextMessageProvider)) {
+    ): ioc_(ioc), acceptor_(ioc), onTextMessage_(move(onTextMessage)),
+       initialTextMessageProvider_(move(initialTextMessageProvider)) {
     boost::beast::error_code ec;
 
     const auto openEndpoint = [&](tcp::endpoint ep) {
         acceptor_.open(ep.protocol(), ec);
         if (ec) {
-            std::cerr << "WebSocket acceptor open error: " << ec.message() << "\n";
+            cerr << "WebSocket acceptor open error: " << ec.message() << "\n";
             return false;
         }
 
         acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
         if (ec) {
-            std::cerr << "WebSocket set_option reuse_address error: " << ec.message() << "\n";
+            cerr << "WebSocket set_option reuse_address error: " << ec.message() << "\n";
             return false;
         }
 
@@ -30,19 +30,19 @@ FrameBroadcaster::FrameBroadcaster(
             // Allow dual-stack (IPv4-mapped) so ws://localhost works whether it resolves to 127.0.0.1 or ::1
             acceptor_.set_option(boost::asio::ip::v6_only(false), ec);
             if (ec) {
-                std::cerr << "WebSocket set_option v6_only error: " << ec.message() << "\n";
+                cerr << "WebSocket set_option v6_only error: " << ec.message() << "\n";
             }
         }
 
         acceptor_.bind(ep, ec);
         if (ec) {
-            std::cerr << "WebSocket bind error: " << ec.message() << "\n";
+            cerr << "WebSocket bind error: " << ec.message() << "\n";
             return false;
         }
 
         acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
         if (ec) {
-            std::cerr << "WebSocket listen error: " << ec.message() << "\n";
+            cerr << "WebSocket listen error: " << ec.message() << "\n";
             return false;
         }
         return true;
@@ -52,14 +52,14 @@ FrameBroadcaster::FrameBroadcaster(
     if (!openEndpoint(tcp::endpoint(tcp::v4(), port))) {
         acceptor_.close();
         ec.clear();
-        std::cerr << "Retrying dual-stack IPv6 bind for WebSocket on port " << port << "...\n";
+        cerr << "Retrying dual-stack IPv6 bind for WebSocket on port " << port << "...\n";
         if (!openEndpoint(tcp::endpoint(tcp::v6(), port))) {
-            std::cerr << "WebSocket listener failed to start; frames will not stream.\n";
+            cerr << "WebSocket listener failed to start; frames will not stream.\n";
             return;
         }
     }
 
-    std::cout << "WebSocket server listening on port " << port << "\n";
+    cout << "WebSocket server listening on port " << port << "\n";
 
     doAccept();
 }
@@ -69,9 +69,9 @@ void FrameBroadcaster::stop() {
     acceptor_.close(ec);
 }
 
-void FrameBroadcaster::broadcast(const std::shared_ptr<std::vector<uint8_t>>& payload) {
-    std::lock_guard<std::mutex> lock(sessionsMutex_);
-    std::vector<std::shared_ptr<Session>> stillAlive;
+void FrameBroadcaster::broadcast(const shared_ptr<vector<uint8_t>>& payload) {
+    lock_guard<mutex> lock(sessionsMutex_);
+    vector<shared_ptr<Session>> stillAlive;
     stillAlive.reserve(sessions_.size());
 
     for (auto& session : sessions_) {
@@ -83,11 +83,11 @@ void FrameBroadcaster::broadcast(const std::shared_ptr<std::vector<uint8_t>>& pa
     sessions_.swap(stillAlive);
 }
 
-void FrameBroadcaster::broadcastText(const std::string& message) {
-    const auto payload = std::make_shared<std::string>(message);
+void FrameBroadcaster::broadcastText(const string& message) {
+    const auto payload = make_shared<string>(message);
 
-    std::lock_guard<std::mutex> lock(sessionsMutex_);
-    std::vector<std::shared_ptr<Session>> stillAlive;
+    lock_guard<mutex> lock(sessionsMutex_);
+    vector<shared_ptr<Session>> stillAlive;
     stillAlive.reserve(sessions_.size());
 
     for (auto& session : sessions_) {
@@ -99,16 +99,16 @@ void FrameBroadcaster::broadcastText(const std::string& message) {
     sessions_.swap(stillAlive);
 }
 
-void FrameBroadcaster::registerSession(const std::shared_ptr<Session>& session) {
-    std::lock_guard<std::mutex> lock(sessionsMutex_);
+void FrameBroadcaster::registerSession(const shared_ptr<Session>& session) {
+    lock_guard<mutex> lock(sessionsMutex_);
     sessions_.push_back(session);
 }
 
-void FrameBroadcaster::handleTextMessage(const std::string& payload) {
+void FrameBroadcaster::handleTextMessage(const string& payload) {
     if (onTextMessage_) onTextMessage_(payload);
 }
 
-std::string FrameBroadcaster::makeInitialTextMessage() const {
+string FrameBroadcaster::makeInitialTextMessage() const {
     if (!initialTextMessageProvider_) return {};
     return initialTextMessageProvider_();
 }
@@ -118,17 +118,17 @@ void FrameBroadcaster::doAccept() {
         boost::asio::make_strand(ioc_),
         [this](boost::beast::error_code ec, tcp::socket socket) {
             if (!ec) {
-                auto session = std::make_shared<Session>(std::move(socket), *this);
+                auto session = make_shared<Session>(move(socket), *this);
                 session->run();
             } else if (ec != boost::asio::error::operation_aborted) {
-                std::cerr << "WebSocket accept error: " << ec.message() << "\n";
+                cerr << "WebSocket accept error: " << ec.message() << "\n";
             }
             doAccept();
         });
 }
 
 FrameBroadcaster::Session::Session(tcp::socket socket, FrameBroadcaster& owner)
-    : ws_(std::move(socket)), owner_(owner) {}
+    : ws_(move(socket)), owner_(owner) {}
 
 bool FrameBroadcaster::Session::isOpen() const {
     return ws_.is_open();
@@ -139,7 +139,7 @@ void FrameBroadcaster::Session::run() {
         boost::beast::role_type::server));
     ws_.set_option(boost::beast::websocket::stream_base::decorator(
         [](boost::beast::websocket::response_type& res) {
-            res.set(boost::beast::http::field::server, std::string("nbody-ws"));
+            res.set(boost::beast::http::field::server, string("nbody-ws"));
         }));
 
     ws_.async_accept(
@@ -148,18 +148,18 @@ void FrameBroadcaster::Session::run() {
 
 void FrameBroadcaster::Session::onAccept(boost::beast::error_code ec) {
     if (ec) {
-        std::cerr << "WebSocket accept handshake failed: " << ec.message() << "\n";
+        cerr << "WebSocket accept handshake failed: " << ec.message() << "\n";
         return;
     }
-    std::cout << "WebSocket client connected\n";
+    cout << "WebSocket client connected\n";
     owner_.registerSession(shared_from_this());
-    const std::string initialMessage = owner_.makeInitialTextMessage();
+    const string initialMessage = owner_.makeInitialTextMessage();
     if (!initialMessage.empty())
-        sendText(std::make_shared<std::string>(initialMessage));
+        sendText(make_shared<string>(initialMessage));
     doRead();
 }
 
-void FrameBroadcaster::Session::sendBinary(const std::shared_ptr<std::vector<uint8_t>>& payload) {
+void FrameBroadcaster::Session::sendBinary(const shared_ptr<vector<uint8_t>>& payload) {
     boost::asio::dispatch(ws_.get_executor(), [self = shared_from_this(), payload]() {
         const bool writing = !self->queue_.empty();
         self->queue_.push_back(OutboundMessage{true, payload, {}});
@@ -167,7 +167,7 @@ void FrameBroadcaster::Session::sendBinary(const std::shared_ptr<std::vector<uin
     });
 }
 
-void FrameBroadcaster::Session::sendText(const std::shared_ptr<std::string>& payload) {
+void FrameBroadcaster::Session::sendText(const shared_ptr<string>& payload) {
     boost::asio::dispatch(ws_.get_executor(), [self = shared_from_this(), payload]() {
         const bool writing = !self->queue_.empty();
         self->queue_.push_back(OutboundMessage{false, {}, payload});
@@ -178,21 +178,21 @@ void FrameBroadcaster::Session::sendText(const std::shared_ptr<std::string>& pay
 void FrameBroadcaster::Session::doRead() {
     ws_.async_read(
         readBuffer_,
-        [self = shared_from_this()](boost::beast::error_code ec, std::size_t bytesTransferred) {
+        [self = shared_from_this()](boost::beast::error_code ec, size_t bytesTransferred) {
             self->onRead(ec, bytesTransferred);
         });
 }
 
-void FrameBroadcaster::Session::onRead(boost::beast::error_code ec, std::size_t) {
+void FrameBroadcaster::Session::onRead(boost::beast::error_code ec, size_t) {
     if (ec == boost::beast::websocket::error::closed) return;
 
     if (ec) {
-        std::cerr << "WebSocket read error: " << ec.message() << "\n";
+        cerr << "WebSocket read error: " << ec.message() << "\n";
         return;
     }
 
     if (ws_.got_text()) {
-        const std::string payload = boost::beast::buffers_to_string(readBuffer_.data());
+        const string payload = boost::beast::buffers_to_string(readBuffer_.data());
         owner_.handleTextMessage(payload);
     }
 
@@ -207,7 +207,7 @@ void FrameBroadcaster::Session::doWrite() {
     if (msg.binary) {
         ws_.async_write(
             boost::asio::buffer(*msg.binaryPayload),
-            [self = shared_from_this()](boost::beast::error_code ec, std::size_t bytesTransferred) {
+            [self = shared_from_this()](boost::beast::error_code ec, size_t bytesTransferred) {
                 self->onWrite(ec, bytesTransferred);
             });
         return;
@@ -215,14 +215,14 @@ void FrameBroadcaster::Session::doWrite() {
 
     ws_.async_write(
         boost::asio::buffer(*msg.textPayload),
-        [self = shared_from_this()](boost::beast::error_code ec, std::size_t bytesTransferred) {
+        [self = shared_from_this()](boost::beast::error_code ec, size_t bytesTransferred) {
             self->onWrite(ec, bytesTransferred);
         });
 }
 
-void FrameBroadcaster::Session::onWrite(boost::beast::error_code ec, std::size_t) {
+void FrameBroadcaster::Session::onWrite(boost::beast::error_code ec, size_t) {
     if (ec) {
-        std::cerr << "WebSocket write error: " << ec.message() << "\n";
+        cerr << "WebSocket write error: " << ec.message() << "\n";
         queue_.clear();
         return;
     }

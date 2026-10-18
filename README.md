@@ -23,15 +23,8 @@ The frontend decodes frames and renders the system in 3D.
 
 ![Stable Orbits](https://raw.githubusercontent.com/pranavaathrey/nBody/frontend/scenarios/preview/stable-orbits.png)
 
-## Repository Layout
+[Here](https://youtu.be/6zQPBgwvHOM) is a video demonstration of the project.
 
-```text
-backend/      C++ simulation, scenario loading, websocket server
-frontend/     Vite + React UI and renderer
-scenarios/    Scenario generators and binary snapshot files
-schema/       FlatBuffers schema for streamed frame payloads
-include/      FlatBuffers headers used by backend
-```
 
 ## Prerequisites
 

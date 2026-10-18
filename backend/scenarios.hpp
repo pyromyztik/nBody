@@ -3,6 +3,8 @@
 #include <iosfwd>
 #include <string>
 
+using namespace std;
+
 enum class ScenarioKind {
 	Galaxy,
 	GalaxyCollision,

@@ -136,8 +136,11 @@ function SimulationPage({
   const backNavigationPendingRef = useRef(false);
   const scenarioStartSentRef = useRef(false);
   const [scenarioStartDispatched, setScenarioStartDispatched] = useState(false);
-  const controlsDisabled = status !== 'connected' || !hasSimControlSnapshot;
   const hasFirstFrame = positions !== null && bodyCount > 0;
+  // Frames prove the backend has loaded a runnable simulation even if the control-state
+  // snapshot text message was delayed or missed.
+  const hasUsableSimControlState = hasSimControlSnapshot || hasFirstFrame;
+  const controlsDisabled = status !== 'connected' || !hasUsableSimControlState;
   const useStableOrbitVisualTheme = scenarioSelection.kind === 'stable-orbits';
   const scenarioTitle = getScenarioTitle(scenarioSelection);
 

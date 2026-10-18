@@ -1,3 +1,4 @@
+/* #region |==========|Layout|==========| */
 .hudColumn {
   position: absolute;
   top: 16px;
@@ -29,7 +30,9 @@
     backdrop-filter 260ms ease,
     box-shadow 260ms ease;
 }
+/* #endregion */
 
+/* #region |==========|Header & Actions|==========| */
 .hudHeader {
   display: flex;
   margin-left: 4px;
@@ -59,70 +62,6 @@
     max-width 360ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 220ms ease,
     transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.hudMinimized {
-  width: auto;
-  max-width: 44px;
-  align-self: flex-start;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 0;
-  backdrop-filter: none;
-}
-.hudMinimized .hudHeader {
-  gap: 0;
-}
-.hudMinimized .hudActions {
-  gap: 0;
-}
-.hudMinimized .hudIconButton {
-  margin: 0;
-}
-.hudMinimized .hudBackButton {
-  width: 0;
-  height: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-.hudMinimized .hudTitle {
-  max-width: 0;
-  opacity: 0;
-  transform: translateX(-6px);
-}
-
-.hudBody {
-  display: grid;
-  grid-template-rows: 1fr;
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  transform-origin: top left;
-  transition:
-    grid-template-rows 440ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 260ms ease,
-    transform 440ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.hudBodyInner {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.isCollapsed {
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transform: translateY(-8px) scale(0.98);
-  pointer-events: none;
-}
-
-.hud strong {
-  color: #f4c069;
-}
-.hud small {
-  color: #747474;
 }
 
 .hudIconButton {
@@ -166,6 +105,76 @@
 .hudBackButton {
   color: #f4c069;
 }
+/* #endregion */
+
+/* #region |==========|Minimized State|==========| */
+.hudMinimized {
+  width: auto;
+  max-width: 44px;
+  align-self: flex-start;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
+  backdrop-filter: none;
+}
+.hudMinimized .hudHeader {
+  gap: 0;
+}
+.hudMinimized .hudActions {
+  gap: 0;
+}
+.hudMinimized .hudIconButton {
+  margin: 0;
+}
+.hudMinimized .hudBackButton {
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.hudMinimized .hudTitle {
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(-6px);
+}
+/* #endregion */
+
+/* #region |==========|Body & Collapse|==========| */
+.hudBody {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition:
+    grid-template-rows 440ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 260ms ease,
+    transform 440ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hudBodyInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.isCollapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+  pointer-events: none;
+}
+/* #endregion */
+
+/* #region |==========|Typography & Status|==========| */
+.hud strong {
+  color: #f4c069;
+}
+.hud small {
+  color: #747474;
+}
 
 .dot {
   display: inline-block;
@@ -177,7 +186,9 @@
 .ok {
   background: #4ff29a;
 }
+/* #endregion */
 
+/* #region |==========|Connection & Stats|==========| */
 .hudConnectionLine {
   display: flex;
   margin-left: 2px;
@@ -206,6 +217,12 @@
   justify-content: space-between;
 }
 
+.statSecondary {
+  color: rgba(215, 222, 253, 0.58);
+}
+/* #endregion */
+
+/* #region |==========|Settings Accordion|==========| */
 .settingsSection {
   display: block;
 }
@@ -293,7 +310,9 @@
   color: #cbd5ff;
   margin-top: 5px;
 }
+/* #endregion */
 
+/* #region |==========|Toggle Controls|==========| */
 .hudToggle {
   display: flex;
   align-items: center;
@@ -334,7 +353,9 @@
   border-width: 0 2px 2px 0;
   transform: translate(-50%, -60%) rotate(45deg);
 }
+/* #endregion */
 
+/* #region |==========|Slider Controls|==========| */
 .hudSlider {
   display: flex;
   flex-direction: column;
@@ -429,7 +450,9 @@
   font-size: 0.75em;
   vertical-align: super;
 }
+/* #endregion */
 
+/* #region |==========|Accessibility & Responsive|==========| */
 @media (prefers-reduced-motion: reduce) {
   .hudSettingsArrow,
   .hudSettingsPanel,
@@ -454,3 +477,4 @@
     width: min(320px, calc(100vw - 32px));
   }
 }
+/* #endregion */

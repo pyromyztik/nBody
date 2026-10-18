@@ -15,7 +15,8 @@ type HudPanelProps = {
 };
 
 function HudStats() {
-  const { frame, bodyCount, fps, totalBytes } = useFrameStore(
+  const [frontendFps, setFrontendFps] = useState(0);
+  const { frame, bodyCount, fps: backendFps, totalBytes } = useFrameStore(
     (state) => ({
       frame: state.frame,
       bodyCount: state.bodyCount,
@@ -25,11 +26,41 @@ function HudStats() {
     shallow
   );
 
+  useEffect(() => {
+    const sampleWindowMs = 250;
+    let rafId = 0;
+    let frameCount = 0;
+    let sampleStart = performance.now();
+    let previousTick = sampleStart;
+
+    const measure = (now: number) => {
+      if (now - previousTick > 1000) {
+        frameCount = 0;
+        sampleStart = now;
+      }
+      previousTick = now;
+      frameCount += 1;
+
+      const elapsed = now - sampleStart;
+      if (elapsed >= sampleWindowMs) {
+        const nextFps = (frameCount * 1000) / elapsed;
+        setFrontendFps((current) => (current > 0 ? current * 0.6 + nextFps * 0.4 : nextFps));
+        frameCount = 0;
+        sampleStart = now;
+      }
+      rafId = window.requestAnimationFrame(measure);
+    };
+
+    rafId = window.requestAnimationFrame(measure);
+    return () => window.cancelAnimationFrame(rafId);
+  }, []);
+
   return (
     <div className={styles.hudStats}>
       <div className={styles.statCol}>
         <div>
-          <strong>FPS</strong> {fps.toFixed(1)}
+          <strong>FPS</strong> {frontendFps.toFixed(1)}{' '}
+          <span className={styles.statSecondary}>{`(${backendFps.toFixed(1)})`}</span>
         </div>
         <div>
           <strong>Frame</strong> {frame}

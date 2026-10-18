@@ -72,7 +72,7 @@ namespace {
     };
 
     string trim(string value) {
-        const auto isWhitespace = [](unsigned char ch) { return std::isspace(ch) != 0; };
+        const auto isWhitespace = [](unsigned char ch) { return isspace(ch) != 0; };
 
         value.erase(
             value.begin(),
@@ -93,7 +93,7 @@ namespace {
             value.begin(),
             value.end(),
             value.begin(),
-            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); }
+            [](unsigned char ch) { return static_cast<char>(tolower(ch)); }
         );
         return value;
     }
@@ -125,7 +125,7 @@ namespace {
         try {
             size_t parsedChars = 0;
             const double parsed = stod(text, &parsedChars);
-            if (parsedChars != text.size() || !std::isfinite(parsed))
+            if (parsedChars != text.size() || !isfinite(parsed))
                 return nullopt;
             return parsed;
         } catch (...) {
@@ -353,7 +353,7 @@ namespace {
                 command << " " << arg;
 
             output << "Executing: " << command.str() << "\n";
-            const int exitCode = std::system(command.str().c_str());
+            const int exitCode = system(command.str().c_str());
             if (exitCode == 0)
                 return true;
 
