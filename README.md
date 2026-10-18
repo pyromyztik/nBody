@@ -28,9 +28,10 @@ The frontend decodes frames and renders the system in 3D.
 
 ## Prerequisites
 
-1. C++17 compiler (with Boost headers installed)
-2. Node.js 18+ and npm
-3. Python 3.x (backend tries `python`, then `py -3`) with `numpy` (runtime-generated scenarios)
+1. C++17 compiler (GCC/Clang)
+2. CMake 3.24+
+3. Node.js 18+ and npm
+4. Python 3.x (backend tries `python`, then `py -3`) with `numpy` (runtime-generated scenarios)
 
     Notes:
 - `galaxy` and `galaxy-collision` do not need Python at runtime because they load prebuilt `.bin` snapshots.
@@ -42,15 +43,18 @@ Open two terminals from the repository root.
 
 ### Build and run backend
 
-Build:
+Build with CMake:
 ```powershell
-g++ -std=c++17 -O3 -march=native -flto=auto -DNDEBUG -Wall -Wextra -pedantic -fopenmp -Iinclude backend/main.cpp backend/velocityVerlet.cpp backend/barnesHutTree.cpp backend/webSocketServer.cpp backend/scenarios.cpp -o nbody_ws.exe -lpthread -lws2_32 -lmswsock
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
+*(On Windows if you have multiple CMake installations, you can explicitly invoke `"C:\Program Files\CMake\bin\cmake.exe"`)*
 
 Run:
 ```powershell
-./nbody_ws.exe
+./build/nbody_ws.exe
 ```
+*(On Linux: `./build/nbody_ws`)*
 
 ### Install and run frontend
 

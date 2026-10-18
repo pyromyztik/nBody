@@ -11,10 +11,10 @@
 #include <optional>
 #include <sstream>
 
+#include "webSocketServer.hpp"
 #include "nBodySim.hpp"
 #include "scenarios.hpp"
 #include "generated/frame_sample_generated.h"
-#include "webSocketServer.hpp"
 
 namespace {
     constexpr bool DEFAULT_SIM_PAUSED = false;
@@ -284,9 +284,7 @@ int main() {
     cout << "Awaiting scenario:start websocket message from frontend before simulation begins.\n";
 
     // start WebSocket broadcaster on ws://localhost:8080/frames
-    boost::asio::io_context ioc;
     FrameBroadcaster broadcaster(
-        ioc,
         8080,
         [&controlBridge](const string& message) {
             cout << "[ws] received: " << message << "\n";
@@ -311,7 +309,6 @@ int main() {
         [&controlBridge]() {
             return encodeControlStateMessage(controlBridge.snapshot());
         });
-    thread wsThread([&ioc]() { ioc.run(); });
 
     flatbuffers::FlatBufferBuilder frameBuilder(1024);
 
@@ -438,8 +435,6 @@ int main() {
     cout << "Average FPS: " << averageFPS << "\n";
 
     broadcaster.stop();
-    ioc.stop();
-    if (wsThread.joinable()) wsThread.join();
 
     return 0;
 }
