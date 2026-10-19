@@ -286,6 +286,12 @@ public:
                         return;
                     }
 
+                    // Handle ping / heartbeat to keep connection alive across proxies and VPNs
+                    if (message == "ping" || message == "control:ping") {
+                        ws->send("pong", uWS::OpCode::TEXT);
+                        return;
+                    }
+
                     // Handle authentication commands
                     constexpr std::string_view LOGIN_PREFIX = "auth:login?";
                     if (message.rfind(LOGIN_PREFIX.data(), 0) == 0) {
@@ -327,9 +333,17 @@ public:
                         }
 
                         if (currentMasterWs_ != nullptr && currentMasterWs_ != ws) {
-                            std::cout << "[auth] Failed master login attempt: master already active (" << masterName_ << ")\n";
-                            ws->send("auth:error?reason=" + nbody_auth::urlEncode("Master role already taken by " + masterName_), uWS::OpCode::TEXT);
-                            return;
+                            std::cout << "[auth] Replacing existing master connection (" << masterName_
+                                      << ") with newly authenticated master: " << name << "\n";
+                            auto* oldMasterWs = currentMasterWs_;
+                            auto* oldData = oldMasterWs->getUserData();
+                            if (oldData) {
+                                oldData->isMaster = false;
+                                oldData->isSpectator = false;
+                            }
+                            oldMasterWs->send("auth:unauthorized?reason=" + nbody_auth::urlEncode("Master session resumed from another connection"), uWS::OpCode::TEXT);
+                            oldMasterWs->close();
+                            currentMasterWs_ = nullptr;
                         }
 
                         // Successfully promote to Master

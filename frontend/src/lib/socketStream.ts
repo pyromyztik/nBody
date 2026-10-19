@@ -143,6 +143,24 @@ export function startFrameWebSocket(
     setCarryFromOffset(merged, offset);
   };
 
+  let pingTimer: number | null = null;
+
+  const stopHeartbeat = () => {
+    if (pingTimer !== null) {
+      window.clearInterval(pingTimer);
+      pingTimer = null;
+    }
+  };
+
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    pingTimer = window.setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send('ping');
+      }
+    }, 15000);
+  };
+
   const cleanupRetry = () => {
     if (retryTimer !== null) {
       window.clearTimeout(retryTimer);
@@ -171,7 +189,17 @@ export function startFrameWebSocket(
     ws = nextSocket;
     ws.binaryType = 'arraybuffer';
 
-    ws.onopen = () => onStatus?.('connected');
+    ws.onopen = () => {
+      onStatus?.('connected');
+      startHeartbeat();
+
+      // Automatically re-authenticate if Master credentials exist in session
+      const savedPwd = sessionStorage.getItem('nbody_master_pwd');
+      const savedName = sessionStorage.getItem('nbody_master_name') || 'Master';
+      if (savedPwd) {
+        sendText(formatMasterLoginMessage(savedPwd, savedName));
+      }
+    };
 
     ws.onerror = (err) => {
       console.error('WebSocket error', err);
@@ -179,8 +207,13 @@ export function startFrameWebSocket(
     };
 
     ws.onclose = (ev: CloseEvent) => {
+      stopHeartbeat();
       resetCarry();
-      useFrameStore.getState().setUserRole('spectator');
+
+      // Only downgrade to spectator if we don't have saved Master credentials to re-authenticate with
+      if (!sessionStorage.getItem('nbody_master_pwd')) {
+        useFrameStore.getState().setUserRole('spectator');
+      }
 
       // Code 1008 is Policy Violation (sent when server is full)
       const isFull = ev.code === 1008 || (ev.reason && ev.reason.toLowerCase().includes('server is full'));
@@ -198,6 +231,10 @@ export function startFrameWebSocket(
     ws.onmessage = async (ev: MessageEvent<ArrayBuffer | Blob | string>) => {
       const data = ev.data;
       if (typeof data === 'string') {
+        if (data === 'pong') {
+          return;
+        }
+
         const authState = parseAuthStateMessage(data);
         if (authState) {
           useFrameStore.getState().setAuthState(authState);
@@ -255,6 +292,7 @@ export function startFrameWebSocket(
   return {
     close: () => {
       stop = true;
+      stopHeartbeat();
       cleanupRetry();
       ws?.close();
     },

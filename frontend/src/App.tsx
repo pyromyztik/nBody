@@ -505,9 +505,9 @@ export default function App() {
     useFrameStore.getState().setUserRole('spectator');
   }, [socketControls]);
 
-  // If auth error occurred, clear saved credentials so we don't get stuck in a loop
+  // If an invalid password error occurred, clear saved credentials
   useEffect(() => {
-    if (lastAuthError) {
+    if (lastAuthError && (lastAuthError.toLowerCase().includes('incorrect') || lastAuthError.toLowerCase().includes('invalid password'))) {
       sessionStorage.removeItem('nbody_master_pwd');
       sessionStorage.removeItem('nbody_master_name');
     }

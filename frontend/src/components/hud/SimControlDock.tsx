@@ -95,14 +95,37 @@ export function SimControlDock({
 
   const speedPopoverCloseTimeoutRef = useRef<number | null>(null);
   const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false);
+  const isDraggingRef = useRef(false);
+  const [localSliderVal, setLocalSliderVal] = useState<number | null>(null);
+  const sendDtTimeoutRef = useRef<number | null>(null);
 
-  const simSpeedMultiplier = Math.max(MIN_KEYBOARD_SIM_SPEED_MULTIPLIER, simDt / BASE_SIM_DT);
-  const sliderBoundedMultiplier = Math.max(
+  const serverSpeedMultiplier = Math.max(MIN_KEYBOARD_SIM_SPEED_MULTIPLIER, simDt / BASE_SIM_DT);
+  const serverBoundedMultiplier = Math.max(
     MIN_SIM_SPEED_MULTIPLIER,
     Math.min(MAX_SIM_SPEED_MULTIPLIER, simDt / BASE_SIM_DT)
   );
-  const simSpeedSliderValue = Math.max(0, Math.min(1, (Math.log10(sliderBoundedMultiplier) + 1) / 2));
+  const serverSliderValue = Math.max(0, Math.min(1, (Math.log10(serverBoundedMultiplier) + 1) / 2));
+
+  // If user is dragging or recently dragged, use local value; otherwise sync with incoming server simDt
+  const simSpeedSliderValue = (isDraggingRef.current && localSliderVal !== null)
+    ? localSliderVal
+    : (localSliderVal !== null ? localSliderVal : serverSliderValue);
+
+  const simSpeedMultiplier = (isDraggingRef.current && localSliderVal !== null)
+    ? sliderToSimSpeedMultiplier(localSliderVal)
+    : serverSpeedMultiplier;
+
   const simSpeedPercent = `${(simSpeedSliderValue * 100).toFixed(2)}%`;
+
+  // Clear local override once incoming simDt from server catches up to target
+  useEffect(() => {
+    if (!isDraggingRef.current && localSliderVal !== null) {
+      const targetDt = BASE_SIM_DT * sliderToSimSpeedMultiplier(localSliderVal);
+      if (Math.abs(simDt - targetDt) < Math.max(0.0005, targetDt * 0.05)) {
+        setLocalSliderVal(null);
+      }
+    }
+  }, [simDt, localSliderVal]);
 
   function clearSpeedPopoverCloseTimeout(): void {
     if (speedPopoverCloseTimeoutRef.current !== null) {
@@ -125,9 +148,31 @@ export function SimControlDock({
     }
 
     const clampedSliderValue = Math.max(0, Math.min(1, nextSliderValue));
+    setLocalSliderVal(clampedSliderValue);
+
     const nextMultiplier = sliderToSimSpeedMultiplier(clampedSliderValue);
     const nextDt = BASE_SIM_DT * nextMultiplier;
-    onSendControlMessage(`control:set?dt=${encodeURIComponent(nextDt.toFixed(6))}`);
+
+    if (sendDtTimeoutRef.current !== null) {
+      window.clearTimeout(sendDtTimeoutRef.current);
+    }
+    sendDtTimeoutRef.current = window.setTimeout(() => {
+      onSendControlMessage(`control:set?dt=${encodeURIComponent(nextDt.toFixed(6))}`);
+      sendDtTimeoutRef.current = null;
+    }, 35);
+  }
+
+  function handleSliderPointerUp(): void {
+    isDraggingRef.current = false;
+    if (localSliderVal !== null) {
+      const nextMultiplier = sliderToSimSpeedMultiplier(localSliderVal);
+      const nextDt = BASE_SIM_DT * nextMultiplier;
+      if (sendDtTimeoutRef.current !== null) {
+        window.clearTimeout(sendDtTimeoutRef.current);
+        sendDtTimeoutRef.current = null;
+      }
+      onSendControlMessage(`control:set?dt=${encodeURIComponent(nextDt.toFixed(6))}`);
+    }
   }
 
   useEffect(() => {
@@ -386,6 +431,9 @@ export function SimControlDock({
                     '--percent': simSpeedPercent
                   } as CSSProperties
                 }
+                onPointerDown={() => { isDraggingRef.current = true; }}
+                onPointerUp={handleSliderPointerUp}
+                onPointerCancel={handleSliderPointerUp}
                 onChange={(ev) => handleSimSpeedChange(Number(ev.target.value))}
               />
               <div className={styles.simControlSpeedScale} aria-hidden="true">
