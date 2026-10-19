@@ -408,6 +408,51 @@ export default function App() {
   const [simulationSessionToken, setSimulationSessionToken] = useState(0);
 
   const [socketControls, setSocketControls] = useState<SocketControls | null>(null);
+  const [isWaking, setIsWaking] = useState(false);
+  const [wakeSecondsRemaining, setWakeSecondsRemaining] = useState(25);
+  const [wakeStatusMessage, setWakeStatusMessage] = useState<string | null>(null);
+
+  const wakeServer = useCallback(async () => {
+    const wakeUrl = import.meta.env.VITE_WAKE_URL;
+    if (!wakeUrl) return;
+    setIsWaking(true);
+    setWakeSecondsRemaining(25);
+    setWakeStatusMessage('Requesting cluster boot...');
+
+    try {
+      await fetch(wakeUrl, { method: 'POST', mode: 'cors' });
+      setWakeStatusMessage('Boot signal acknowledged. Starting Zen 4 node...');
+    } catch (err) {
+      console.warn('Wakeup request dispatched:', err);
+      setWakeStatusMessage('Boot signal dispatched. Waiting for cluster network...');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status === 'connected') {
+      setIsWaking(false);
+      setWakeSecondsRemaining(25);
+      setWakeStatusMessage(null);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (!isWaking) return;
+    const interval = window.setInterval(() => {
+      setWakeSecondsRemaining((prev) => {
+        if (prev <= 1) {
+          setIsWaking(false);
+          socketControls?.reconnect();
+          return 25;
+        }
+        if (prev <= 16 && prev % 3 === 0) {
+          socketControls?.reconnect();
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [isWaking, socketControls]);
 
   const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted } = useFrameStore((state) => ({
     status: state.status,
@@ -590,47 +635,87 @@ export default function App() {
   }
 
   if (status === 'disconnected' || status === 'error') {
+    const hasWakeUrl = Boolean(import.meta.env.VITE_WAKE_URL);
+
     return (
       <div className={appStyles.serverFullShell} role="alert" aria-live="assertive">
         <div className={appStyles.serverFullCard}>
-          <div className={appStyles.serverFullIconWrapper} aria-hidden="true">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M7 2h13a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5" />
-              <path d="M10 10 2.5 2.5" />
-              <path d="M22 17v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h1" />
-              <path d="M2 14h12" />
-              <path d="M20 14h2" />
-              <path d="M22 22 2 2" />
-              <path d="M6 18h.01" />
-              <path d="M7 6h.01" />
-            </svg>
+          <div
+            className={appStyles.serverFullIconWrapper}
+            aria-hidden="true"
+            style={hasWakeUrl ? { borderColor: 'rgba(56, 189, 248, 0.4)', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8' } : undefined}
+          >
+            {isWaking ? (
+              <div className={appStyles.loadingSpinner} style={{ width: 32, height: 32, borderWidth: 3 }} />
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="48"
+                height="48"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M7 2h13a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5" />
+                <path d="M10 10 2.5 2.5" />
+                <path d="M22 17v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h1" />
+                <path d="M2 14h12" />
+                <path d="M20 14h2" />
+                <path d="M22 22 2 2" />
+                <path d="M6 18h.01" />
+                <path d="M7 6h.01" />
+              </svg>
+            )}
           </div>
-          <h1 className={appStyles.serverFullTitle}>Backend Disconnected</h1>
+          <h1 className={appStyles.serverFullTitle} style={hasWakeUrl ? { color: '#38bdf8' } : undefined}>
+            {isWaking ? 'Booting Simulation Node' : (hasWakeUrl ? 'Simulation Node Standby' : 'Backend Disconnected')}
+          </h1>
           <p className={appStyles.serverFullDescription}>
-            The simulation backend is currently offline or unreachable.
+            {isWaking
+              ? (wakeStatusMessage || 'Booting dedicated AWS compute node...')
+              : (hasWakeUrl
+                ? 'The simulation node is currently in standby to conserve AWS compute credits.'
+                : 'The simulation backend is currently offline or unreachable.')}
           </p>
           <p className={appStyles.serverFullSubtext}>
-            Please verify that the backend server is running (<code style={{ color: '#93c5fd' }}>./build/nbody_ws.exe</code>) to use the simulation.
+            {isWaking
+              ? `Estimated node readiness in ~${wakeSecondsRemaining}s. Connecting automatically...`
+              : (hasWakeUrl
+                ? 'Click below to spin up the dedicated Zen 4 compute cluster (~20 seconds).'
+                : <>Please verify that the backend server is running (<code style={{ color: '#93c5fd' }}>./build/nbody_ws.exe</code>) to use the simulation.</>)}
           </p>
-          <button
-            className={appStyles.serverFullRetryBtn}
-            type="button"
-            onClick={() => {
-              socketControls?.reconnect();
-            }}
-          >
-            Retry Connection
-          </button>
+          {hasWakeUrl ? (
+            <>
+              <button
+                className={appStyles.serverFullWakeBtn}
+                type="button"
+                disabled={isWaking}
+                onClick={wakeServer}
+              >
+                {isWaking ? `Waking Node (${wakeSecondsRemaining}s)...` : '⚡ Wake Simulation Node (~20s)'}
+              </button>
+              <button
+                className={appStyles.serverFullSecondaryBtn}
+                type="button"
+                onClick={() => socketControls?.reconnect()}
+              >
+                Manual Reconnect
+              </button>
+            </>
+          ) : (
+            <button
+              className={appStyles.serverFullRetryBtn}
+              type="button"
+              onClick={() => {
+                socketControls?.reconnect();
+              }}
+            >
+              Retry Connection
+            </button>
+          )}
         </div>
       </div>
     );
