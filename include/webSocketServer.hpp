@@ -335,7 +335,7 @@ public:
                         if (currentMasterWs_ != nullptr && currentMasterWs_ != ws) {
                             std::cout << "[auth] Replacing existing master connection (" << masterName_
                                       << ") with newly authenticated master: " << name << "\n";
-                            auto* oldMasterWs = currentMasterWs_;
+                            auto* oldMasterWs = static_cast<decltype(ws)>(currentMasterWs_);
                             auto* oldData = oldMasterWs->getUserData();
                             if (oldData) {
                                 oldData->isMaster = false;
