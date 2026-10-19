@@ -246,3 +246,85 @@
 .serverFullRetryBtn:active {
   transform: translateY(1px);
 }
+
+.quotaModalShell {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.quotaModalCard {
+  width: min(480px, 100%);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 16px;
+  background: rgba(15, 18, 28, 0.94);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  padding: 28px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.quotaModalIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f87171;
+  margin-bottom: 16px;
+}
+
+.quotaModalIcon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.quotaModalTitle {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #f87171;
+}
+
+.quotaModalDesc {
+  margin: 12px 0 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+}
+
+.quotaModalSubtext {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.quotaModalButton {
+  margin-top: 20px;
+  border: none;
+  border-radius: 8px;
+  background: #daa453;
+  color: #181119;
+  font-weight: 700;
+  font-size: 0.92rem;
+  padding: 10px 24px;
+  cursor: pointer;
+  transition: transform 140ms ease, background-color 140ms ease;
+}
+
+.quotaModalButton:hover {
+  background: #efb968;
+  transform: translateY(-1px);
+}

@@ -37,26 +37,45 @@ The frontend decodes frames and renders the system in 3D.
 - `galaxy` and `galaxy-collision` do not need Python at runtime because they load prebuilt `.bin` snapshots.
 - The galaxy generation workflows require extra libraries like `agama`, but those are not needed for normal runtime.
 
-## Build Instructions
+## Build and Run
 
 Open two terminals from the repository root.
 
-### Build and run backend
+### Build Backend
 
 Build with CMake:
 ```powershell
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
-*(On Windows if you have multiple CMake installations, you can explicitly invoke `"C:\Program Files\CMake\bin\cmake.exe"`)*
 
-Run:
+### Running the Backend
+
+The backend supports two operating modes:
+
+#### 1. Hosted Multi-User Mode (Default)
+Run in public/hosted mode:
 ```powershell
 ./build/nbody_ws.exe
 ```
 *(On Linux: `./build/nbody_ws`)*
 
-### Install and run frontend
+- **Master Authentication**: One operator logs in as Master to configure and run simulations. Includes brute-force protection (maximum 5 attempts per day).
+- **Spectator Mode**: Up to 6 spectators can join concurrently to watch simulations live, inspect telemetry, and switch cameras without disrupting the simulation.
+- **Daily Compute Quota**: Tracks cumulative simulation run time (1.5 hours per day shared across users) with state persistence and live remaining compute ring indicator in the HUD.
+
+#### 2. Locally-Hosted Mode (Recommended for Local Development)
+Run without compute quotas, password authentication, or spectator caps:
+```powershell
+./build/nbody_ws.exe --locally-hosted
+# or using the shorthand:
+./build/nbody_ws.exe -lh
+```
+*(On Linux: `./build/nbody_ws --locally-hosted` or `./build/nbody_ws -lh`)*
+
+---
+
+### Install and Run Frontend
 
 ```powershell
 cd frontend
@@ -64,10 +83,11 @@ npm install
 npm run dev
 ```
 
-### Start a scenario
+### Start a Scenario
 
-1. Open the frontend in a browser
-2. Choose a scenario on the landing page
-3. Click simulate
+1. Open the frontend in your browser (e.g., `http://localhost:5173`)
+2. In locally-hosted mode, simply choose a scenario on the landing page and click **Simulate**.
+3. In hosted mode, authenticate as the Master to select scenarios, or join as a spectator if a simulation is already running.
 
-The frontend sends scenario + control messages, then rendering begins once first frame arrives.
+The frontend sends scenario and control messages over WebSocket, and 3D rendering begins as soon as the binary frame stream starts.
+

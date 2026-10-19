@@ -23,7 +23,14 @@ struct FrameSample FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_FRAME = 4,
     VT_BODY_COUNT = 6,
-    VT_BODIES = 8
+    VT_SIM_DT = 8,
+    VT_BBOX_MIN_X = 10,
+    VT_BBOX_MIN_Y = 12,
+    VT_BBOX_MIN_Z = 14,
+    VT_BBOX_EXTENT_X = 16,
+    VT_BBOX_EXTENT_Y = 18,
+    VT_BBOX_EXTENT_Z = 20,
+    VT_BODIES = 22
   };
   uint32_t frame() const {
     return GetField<uint32_t>(VT_FRAME, 0);
@@ -31,14 +38,42 @@ struct FrameSample FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   uint32_t body_count() const {
     return GetField<uint32_t>(VT_BODY_COUNT, 0);
   }
-  const ::flatbuffers::Vector<float> *bodies() const {
-    return GetPointer<const ::flatbuffers::Vector<float> *>(VT_BODIES);
+  float sim_dt() const {
+    return GetField<float>(VT_SIM_DT, 0.0f);
+  }
+  float bbox_min_x() const {
+    return GetField<float>(VT_BBOX_MIN_X, 0.0f);
+  }
+  float bbox_min_y() const {
+    return GetField<float>(VT_BBOX_MIN_Y, 0.0f);
+  }
+  float bbox_min_z() const {
+    return GetField<float>(VT_BBOX_MIN_Z, 0.0f);
+  }
+  float bbox_extent_x() const {
+    return GetField<float>(VT_BBOX_EXTENT_X, 0.0f);
+  }
+  float bbox_extent_y() const {
+    return GetField<float>(VT_BBOX_EXTENT_Y, 0.0f);
+  }
+  float bbox_extent_z() const {
+    return GetField<float>(VT_BBOX_EXTENT_Z, 0.0f);
+  }
+  const ::flatbuffers::Vector<uint16_t> *bodies() const {
+    return GetPointer<const ::flatbuffers::Vector<uint16_t> *>(VT_BODIES);
   }
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint32_t>(verifier, VT_FRAME, 4) &&
            VerifyField<uint32_t>(verifier, VT_BODY_COUNT, 4) &&
+           VerifyField<float>(verifier, VT_SIM_DT, 4) &&
+           VerifyField<float>(verifier, VT_BBOX_MIN_X, 4) &&
+           VerifyField<float>(verifier, VT_BBOX_MIN_Y, 4) &&
+           VerifyField<float>(verifier, VT_BBOX_MIN_Z, 4) &&
+           VerifyField<float>(verifier, VT_BBOX_EXTENT_X, 4) &&
+           VerifyField<float>(verifier, VT_BBOX_EXTENT_Y, 4) &&
+           VerifyField<float>(verifier, VT_BBOX_EXTENT_Z, 4) &&
            VerifyOffset(verifier, VT_BODIES) &&
            verifier.VerifyVector(bodies()) &&
            verifier.EndTable();
@@ -55,7 +90,28 @@ struct FrameSampleBuilder {
   void add_body_count(uint32_t body_count) {
     fbb_.AddElement<uint32_t>(FrameSample::VT_BODY_COUNT, body_count, 0);
   }
-  void add_bodies(::flatbuffers::Offset<::flatbuffers::Vector<float>> bodies) {
+  void add_sim_dt(float sim_dt) {
+    fbb_.AddElement<float>(FrameSample::VT_SIM_DT, sim_dt, 0.0f);
+  }
+  void add_bbox_min_x(float bbox_min_x) {
+    fbb_.AddElement<float>(FrameSample::VT_BBOX_MIN_X, bbox_min_x, 0.0f);
+  }
+  void add_bbox_min_y(float bbox_min_y) {
+    fbb_.AddElement<float>(FrameSample::VT_BBOX_MIN_Y, bbox_min_y, 0.0f);
+  }
+  void add_bbox_min_z(float bbox_min_z) {
+    fbb_.AddElement<float>(FrameSample::VT_BBOX_MIN_Z, bbox_min_z, 0.0f);
+  }
+  void add_bbox_extent_x(float bbox_extent_x) {
+    fbb_.AddElement<float>(FrameSample::VT_BBOX_EXTENT_X, bbox_extent_x, 0.0f);
+  }
+  void add_bbox_extent_y(float bbox_extent_y) {
+    fbb_.AddElement<float>(FrameSample::VT_BBOX_EXTENT_Y, bbox_extent_y, 0.0f);
+  }
+  void add_bbox_extent_z(float bbox_extent_z) {
+    fbb_.AddElement<float>(FrameSample::VT_BBOX_EXTENT_Z, bbox_extent_z, 0.0f);
+  }
+  void add_bodies(::flatbuffers::Offset<::flatbuffers::Vector<uint16_t>> bodies) {
     fbb_.AddOffset(FrameSample::VT_BODIES, bodies);
   }
   explicit FrameSampleBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
@@ -73,9 +129,23 @@ inline ::flatbuffers::Offset<FrameSample> CreateFrameSample(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     uint32_t frame = 0,
     uint32_t body_count = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<float>> bodies = 0) {
+    float sim_dt = 0.0f,
+    float bbox_min_x = 0.0f,
+    float bbox_min_y = 0.0f,
+    float bbox_min_z = 0.0f,
+    float bbox_extent_x = 0.0f,
+    float bbox_extent_y = 0.0f,
+    float bbox_extent_z = 0.0f,
+    ::flatbuffers::Offset<::flatbuffers::Vector<uint16_t>> bodies = 0) {
   FrameSampleBuilder builder_(_fbb);
   builder_.add_bodies(bodies);
+  builder_.add_bbox_extent_z(bbox_extent_z);
+  builder_.add_bbox_extent_y(bbox_extent_y);
+  builder_.add_bbox_extent_x(bbox_extent_x);
+  builder_.add_bbox_min_z(bbox_min_z);
+  builder_.add_bbox_min_y(bbox_min_y);
+  builder_.add_bbox_min_x(bbox_min_x);
+  builder_.add_sim_dt(sim_dt);
   builder_.add_body_count(body_count);
   builder_.add_frame(frame);
   return builder_.Finish();
@@ -85,12 +155,26 @@ inline ::flatbuffers::Offset<FrameSample> CreateFrameSampleDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     uint32_t frame = 0,
     uint32_t body_count = 0,
-    const std::vector<float> *bodies = nullptr) {
-  auto bodies__ = bodies ? _fbb.CreateVector<float>(*bodies) : 0;
+    float sim_dt = 0.0f,
+    float bbox_min_x = 0.0f,
+    float bbox_min_y = 0.0f,
+    float bbox_min_z = 0.0f,
+    float bbox_extent_x = 0.0f,
+    float bbox_extent_y = 0.0f,
+    float bbox_extent_z = 0.0f,
+    const std::vector<uint16_t> *bodies = nullptr) {
+  auto bodies__ = bodies ? _fbb.CreateVector<uint16_t>(*bodies) : 0;
   return nbody::CreateFrameSample(
       _fbb,
       frame,
       body_count,
+      sim_dt,
+      bbox_min_x,
+      bbox_min_y,
+      bbox_min_z,
+      bbox_extent_x,
+      bbox_extent_y,
+      bbox_extent_z,
       bodies__);
 }
 

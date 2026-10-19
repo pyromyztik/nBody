@@ -34,7 +34,7 @@ namespace {
     };
 
     float scenarioDefaultDt(const ScenarioSelection& selection) {
-        return selection.kind == ScenarioKind::GalaxyCollision
+        return (selection.kind == ScenarioKind::GalaxyCollision || selection.kind == ScenarioKind::GalaxyCollision15k)
             ? GALAXY_COLLISION_DEFAULT_SIM_DT
             : DEFAULT_SIM_DT;
     }
@@ -225,30 +225,197 @@ namespace {
         #endif
     }
 
+    struct BoundingBox {
+        float minX = 0.0f, minY = 0.0f, minZ = 0.0f;
+        float extentX = 1.0f, extentY = 1.0f, extentZ = 1.0f;
+    };
+
+    struct BoundingBoxState {
+        BoundingBox bbox;
+        bool initialized = false;
+
+        void reset() {
+            initialized = false;
+        }
+    };
+
+    BoundingBox computeQuantizationBounds(const ParticleSystem& system, BoundingBoxState& state) {
+        const size_t n = system.size();
+        if (n == 0) return {};
+
+        float absMinX = std::numeric_limits<float>::max();
+        float absMaxX = -std::numeric_limits<float>::max();
+        float absMinY = std::numeric_limits<float>::max();
+        float absMaxY = -std::numeric_limits<float>::max();
+        float absMinZ = std::numeric_limits<float>::max();
+        float absMaxZ = -std::numeric_limits<float>::max();
+
+        for (const BodyBlock& blk : system.blocks) {
+            for (size_t lane = 0; lane < blk.count; ++lane) {
+                const float x = blk.posX[lane];
+                const float y = blk.posY[lane];
+                const float z = blk.posZ[lane];
+                if (x < absMinX) absMinX = x;
+                if (x > absMaxX) absMaxX = x;
+                if (y < absMinY) absMinY = y;
+                if (y > absMaxY) absMaxY = y;
+                if (z < absMinZ) absMinZ = z;
+                if (z > absMaxZ) absMaxZ = z;
+            }
+        }
+
+        // Fast-path bypass: if bounding box is already initialized and all particles
+        // (including any potential outliers) are comfortably within the existing bounding box,
+        // we can immediately reuse state.bbox without copying arrays or running std::nth_element.
+        if (state.initialized) {
+            const float thX = state.bbox.extentX * 0.02f;
+            const float thY = state.bbox.extentY * 0.02f;
+            const float thZ = state.bbox.extentZ * 0.02f;
+            const bool insideX = (absMinX >= state.bbox.minX + thX) && (absMaxX <= state.bbox.minX + state.bbox.extentX - thX);
+            const bool insideY = (absMinY >= state.bbox.minY + thY) && (absMaxY <= state.bbox.minY + state.bbox.extentY - thY);
+            const bool insideZ = (absMinZ >= state.bbox.minZ + thZ) && (absMaxZ <= state.bbox.minZ + state.bbox.extentZ - thZ);
+            if (insideX && insideY && insideZ) {
+                return state.bbox;
+            }
+        }
+
+        float candMinX = absMinX; float candMaxX = absMaxX;
+        float candMinY = absMinY; float candMaxY = absMaxY;
+        float candMinZ = absMinZ; float candMaxZ = absMaxZ;
+
+        // Outlier mitigation: for systems with > 32 particles, compute robust percentiles
+        // so that runaway slingshotted particles do not destroy quantization resolution.
+        if (n > 32) {
+            static thread_local std::vector<float> scratchX;
+            static thread_local std::vector<float> scratchY;
+            static thread_local std::vector<float> scratchZ;
+            scratchX.resize(n);
+            scratchY.resize(n);
+            scratchZ.resize(n);
+
+            size_t idx = 0;
+            for (const BodyBlock& blk : system.blocks) {
+                for (size_t lane = 0; lane < blk.count; ++lane) {
+                    scratchX[idx] = blk.posX[lane];
+                    scratchY[idx] = blk.posY[lane];
+                    scratchZ[idx] = blk.posZ[lane];
+                    ++idx;
+                }
+            }
+
+            const size_t k1 = static_cast<size_t>(n * 0.01f);
+            size_t k2 = static_cast<size_t>(n * 0.99f);
+            if (k2 >= n) k2 = n - 1;
+
+            auto getRobustRange = [&](std::vector<float>& arr, float absMin, float absMax, float& outMin, float& outMax) {
+                std::nth_element(arr.begin(), arr.begin() + k1, arr.end());
+                const float p1 = arr[k1];
+                std::nth_element(arr.begin() + k1 + 1, arr.begin() + k2, arr.end());
+                const float p99 = arr[k2];
+                const float span = std::max(p99 - p1, 1e-4f);
+                // Allow generous 35% margin beyond 1st/99th percentiles before clamping outliers
+                const float robustMin = p1 - 0.35f * span;
+                const float robustMax = p99 + 0.35f * span;
+                outMin = std::max(absMin, robustMin);
+                outMax = std::min(absMax, robustMax);
+                if (outMax <= outMin) outMax = outMin + 1e-4f;
+            };
+
+            getRobustRange(scratchX, absMinX, absMaxX, candMinX, candMaxX);
+            getRobustRange(scratchY, absMinY, absMaxY, candMinY, candMaxY);
+            getRobustRange(scratchZ, absMinZ, absMaxZ, candMinZ, candMaxZ);
+        }
+
+        if (!state.initialized) {
+            // Generous initial padding (15%) so the bounding box doesn't need to expand right away
+            auto initAxis = [](float cMin, float cMax, float& outMin, float& outExtent) {
+                const float span = std::max(cMax - cMin, 1e-4f);
+                const float pad = span * 0.15f;
+                outMin = cMin - pad;
+                outExtent = std::max(span + 2.0f * pad, 1e-4f);
+            };
+            initAxis(candMinX, candMaxX, state.bbox.minX, state.bbox.extentX);
+            initAxis(candMinY, candMaxY, state.bbox.minY, state.bbox.extentY);
+            initAxis(candMinZ, candMaxZ, state.bbox.minZ, state.bbox.extentZ);
+            state.initialized = true;
+            return state.bbox;
+        }
+
+        // Hysteresis: only expand the bounding box when particles come within 2% of the boundary
+        // or exceed it. When expanding, add a generous 20% margin to prevent frame-by-frame expansion.
+        auto updateAxisHysteresis = [](float cMin, float cMax, float& boxMin, float& boxExtent) {
+            float boxMax = boxMin + boxExtent;
+            const float threshold = boxExtent * 0.02f;
+            bool changed = false;
+
+            if (cMin < boxMin + threshold) {
+                const float span = std::max(cMax - cMin, 1e-4f);
+                boxMin = cMin - span * 0.20f;
+                changed = true;
+            }
+            if (cMax > boxMax - threshold) {
+                const float span = std::max(cMax - cMin, 1e-4f);
+                boxMax = cMax + span * 0.20f;
+                changed = true;
+            }
+            if (changed) {
+                boxExtent = std::max(boxMax - boxMin, 1e-4f);
+            }
+        };
+
+        updateAxisHysteresis(candMinX, candMaxX, state.bbox.minX, state.bbox.extentX);
+        updateAxisHysteresis(candMinY, candMaxY, state.bbox.minY, state.bbox.extentY);
+        updateAxisHysteresis(candMinZ, candMaxZ, state.bbox.minZ, state.bbox.extentZ);
+
+        return state.bbox;
+    }
+
     void broadcastFrame(const ParticleSystem& system,
                         int frame,
+                        float simDt,
                         flatbuffers::FlatBufferBuilder& builder,
-                        FrameBroadcaster& broadcaster) {
+                        FrameBroadcaster& broadcaster,
+                        BoundingBoxState& bboxState) {
         builder.Clear();
 
-        float* interleaved = nullptr;
-        const auto bodies = builder.CreateUninitializedVector<float>(system.size() * 6, &interleaved);
+        const size_t bodyCount = system.size();
+        const BoundingBox bbox = computeQuantizationBounds(system, bboxState);
+
+        uint16_t* interleaved = nullptr;
+        const auto bodies = builder.CreateUninitializedVector<uint16_t>(bodyCount * 3, &interleaved);
+
+        const float invExtentX = 65535.0f / bbox.extentX;
+        const float invExtentY = 65535.0f / bbox.extentY;
+        const float invExtentZ = 65535.0f / bbox.extentZ;
 
         size_t writeIdx = 0;
-        for (const BodyBlock& blk : system.blocks)
+        for (const BodyBlock& blk : system.blocks) {
             for (size_t lane = 0; lane < blk.count; ++lane) {
-                interleaved[writeIdx++] = blk.posX[lane];
-                interleaved[writeIdx++] = blk.posY[lane];
-                interleaved[writeIdx++] = blk.posZ[lane];
-                interleaved[writeIdx++] = blk.velX[lane];
-                interleaved[writeIdx++] = blk.velY[lane];
-                interleaved[writeIdx++] = blk.velZ[lane];
+                float normX = (blk.posX[lane] - bbox.minX) * invExtentX;
+                float normY = (blk.posY[lane] - bbox.minY) * invExtentY;
+                float normZ = (blk.posZ[lane] - bbox.minZ) * invExtentZ;
+
+                if (normX < 0.0f) normX = 0.0f; else if (normX > 65535.0f) normX = 65535.0f;
+                if (normY < 0.0f) normY = 0.0f; else if (normY > 65535.0f) normY = 65535.0f;
+                if (normZ < 0.0f) normZ = 0.0f; else if (normZ > 65535.0f) normZ = 65535.0f;
+
+                interleaved[writeIdx++] = static_cast<uint16_t>(normX + 0.5f);
+                interleaved[writeIdx++] = static_cast<uint16_t>(normY + 0.5f);
+                interleaved[writeIdx++] = static_cast<uint16_t>(normZ + 0.5f);
             }
+        }
 
         const auto sample = nbody::CreateFrameSample(
             builder,
             static_cast<uint32_t>(frame),
-            static_cast<uint32_t>(system.size()),
+            static_cast<uint32_t>(bodyCount),
+            simDt,
+            bbox.minX,
+            bbox.minY,
+            bbox.minZ,
+            bbox.extentX,
+            bbox.extentY,
+            bbox.extentZ,
             bodies);
 
         // Build a non-size-prefixed FlatBuffer so we can add our own 4-byte length prefix.
@@ -265,23 +432,70 @@ namespace {
 
     string scenarioTitleFromSelection(const ScenarioSelection& selection) {
         switch (selection.kind) {
-            case ScenarioKind::Galaxy: return "Galaxy";
-            case ScenarioKind::GalaxyCollision: return "Galaxy Collision";
-            case ScenarioKind::StableOrbits: return "Stable Orbits";
-            case ScenarioKind::AccretionDisk: return "Accretion Disk";
-            default: return "Simulation";
+            case ScenarioKind::Galaxy:
+            case ScenarioKind::Galaxy10k:
+                return "Galaxy";
+            case ScenarioKind::GalaxyCollision:
+            case ScenarioKind::GalaxyCollision15k:
+                return "Galaxy Collision";
+            case ScenarioKind::StableOrbits:
+                return "Stable Orbits";
+            case ScenarioKind::AccretionDisk:
+                return "Accretion Disk";
+            default:
+                return "Simulation";
         }
+    }
+
+    size_t calculateAdaptiveTargetFps(size_t bodyCount) {
+        if (bodyCount <= 3) return 240;
+        // Continuous rational scaling curve:
+        // N = 3       -> 240 fps
+        // N = 5,000   -> 60 fps
+        // N = 30,000  -> ~33 fps (approaching 30 fps asymptote)
+        const double ratio = static_cast<double>(bodyCount) / 1267.0;
+        const double fps = 30.0 + 210.0 / (1.0 + std::pow(ratio, 1.3));
+        return static_cast<size_t>(std::clamp(std::round(fps), 30.0, 240.0));
     }
 
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     signal(SIGINT, handleSignal);
     signal(SIGTERM, handleSignal);
 
+    bool locallyHosted = false;
+    bool resetLimit = false;
+    bool resetOnly = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--locally-hosted" || arg == "-lh" || arg == "--local") {
+            locallyHosted = true;
+        } else if (arg == "--reset-limit" || arg == "-rl" || arg == "--reset-quota") {
+            resetLimit = true;
+        } else if (arg == "--reset-only") {
+            resetLimit = true;
+            resetOnly = true;
+        } else if (arg == "--help" || arg == "-h") {
+            cout << "Usage: nbody_ws [options]\n"
+                 << "Options:\n"
+                 << "  --locally-hosted, -lh, --local   Run in local mode (disable password auth & compute quota)\n"
+                 << "  --reset-limit, -rl               Reset tracked daily compute usage and password attempts to 0\n"
+                 << "  --reset-only                     Reset compute usage and password attempts, then exit immediately\n"
+                 << "  --help, -h                       Show this help message\n";
+            return 0;
+        }
+    }
+
+    if (locallyHosted) {
+        cout << "[mode] Running in locally-hosted mode (--locally-hosted / -lh): login system and daily compute limits are DISABLED.\n";
+    } else {
+        cout << "[mode] Running in hosted mode (default): password protection and 1.5h daily compute limit ENABLED.\n";
+    }
+
     // ------------------INITIALIZE SYSTEM------------------//
 
-    const size_t MAX_FPS = 100; // frame cap for output/write loop (set 0 to disable)
+    size_t targetFps = 60; // dynamic target FPS that scales with body count
     ParticleSystem system;
     ParticleSystem initialSystem;
     bool hasLoadedScenario = false;
@@ -292,21 +506,44 @@ int main() {
 
     int currentFrame = 0;
 
-    cout << "Awaiting scenario:start websocket message from Master before simulation begins.\n";
+    ComputeQuotaManager quotaManager;
+    if (resetLimit) {
+        quotaManager.resetQuotaAndAttempts();
+        if (resetOnly) {
+            cout << "[quota] Exiting after reset (--reset-only specified).\n";
+            return 0;
+        }
+    }
+
+    if (locallyHosted) {
+        cout << "Awaiting scenario:start websocket message before simulation begins.\n";
+    } else {
+        cout << "Awaiting scenario:start websocket message from Master before simulation begins.\n";
+    }
 
     FrameBroadcaster* broadcasterPtr = nullptr;
 
     // start WebSocket broadcaster on ws://localhost:8080/frames
     FrameBroadcaster broadcaster(
         8080,
-        [&controlBridge, &isSimRunning, &broadcasterPtr](const string& message) {
-            cout << "[ws] received from master: " << message << "\n";
+        &quotaManager,
+        locallyHosted,
+        [&controlBridge, &isSimRunning, &broadcasterPtr, &quotaManager, locallyHosted](const string& message) {
+            cout << "[ws] received command: " << message << "\n";
 
             if (message == "sim:console" || message == "sim:stop") {
                 isSimRunning = false;
                 controlBridge.enqueueMessage("control:set?paused=1");
                 if (broadcasterPtr) broadcasterPtr->notifySimStateChanged();
-                cout << "[sim] master returned to console, simulation stopped\n";
+                cout << "[sim] returned to console, simulation stopped\n";
+                return;
+            }
+
+            if (!locallyHosted && quotaManager.isComputeExhausted()) {
+                cout << "[quota] Blocked command: daily compute limit reached.\n";
+                if (broadcasterPtr) {
+                    broadcasterPtr->broadcastText("auth:error?reason=" + nbody_auth::urlEncode("Daily compute limit reached. Please return tomorrow to continue using the simulation."));
+                }
                 return;
             }
 
@@ -343,11 +580,12 @@ int main() {
     broadcasterPtr = &broadcaster;
 
     flatbuffers::FlatBufferBuilder frameBuilder(1024);
+    BoundingBoxState bboxState;
 
-    const auto targetFrameDuration =
-        (MAX_FPS > 0)
+    auto targetFrameDuration =
+        (targetFps > 0)
             ? chrono::duration_cast<chrono::steady_clock::duration>(
-                chrono::duration<double>(1.0 / static_cast<double>(MAX_FPS)))
+                chrono::duration<double>(1.0 / static_cast<double>(targetFps)))
             : chrono::steady_clock::duration::zero();
 
     // ---------------------PHYSICS LOOP---------------------//
@@ -389,15 +627,21 @@ int main() {
                     broadcaster.setScenarioTitle(scenarioTitleFromSelection(*controlUpdate.scenarioStartSelection));
                     broadcaster.notifySimStateChanged();
                     currentFrame = 0;
+                    bboxState.reset();
+
+                    targetFps = calculateAdaptiveTargetFps(system.size());
+                    targetFrameDuration = chrono::duration_cast<chrono::steady_clock::duration>(
+                        chrono::duration<double>(1.0 / static_cast<double>(targetFps)));
 
                     cout << "[scenario] loaded successfully with "
-                         << system.size() << " bodies\n";
+                         << system.size() << " bodies (adaptive target: " << targetFps << " FPS)\n";
                 }
             }
 
             if (controlUpdate.resetRequested && hasLoadedScenario) {
                 system = initialSystem;
                 currentFrame = 0;
+                bboxState.reset();
             }
 
             if (shouldBroadcastControlState) {
@@ -431,24 +675,50 @@ int main() {
             chrono::duration<double, milli> frameTime = computeEnd - computeStart;
 
             // stream simulation data for every frame as interleaved FlatBuffers
-            broadcastFrame(system, currentFrame, frameBuilder, broadcaster);
+            broadcastFrame(system, currentFrame, runtimeControls.dt, frameBuilder, broadcaster, bboxState);
 
-            if (MAX_FPS > 0) {
+            if (targetFps > 0) {
                 const auto targetFrameEnd = frameStart + targetFrameDuration;
                 #if defined(_WIN32)
-                    // Windows sleep granularity is often too coarse for 5ms pacing; 
-                    while (chrono::steady_clock::now() < targetFrameEnd)
-                        this_thread::yield();
+                    while (true) {
+                        const auto now = chrono::steady_clock::now();
+                        if (now >= targetFrameEnd) break;
+                        const auto remaining = chrono::duration_cast<chrono::milliseconds>(targetFrameEnd - now);
+                        if (remaining.count() > 2) {
+                            this_thread::sleep_for(chrono::milliseconds(1));
+                        } else {
+                            this_thread::yield();
+                        }
+                    }
                 #else
                     this_thread::sleep_until(targetFrameEnd);
                 #endif
             }
-            
-            // output performance metrics every 50 frames
+
+            if (!locallyHosted) {
+                const auto frameEnd = chrono::steady_clock::now();
+                const double frameElapsedSeconds = chrono::duration<double>(frameEnd - frameStart).count();
+                if (quotaManager.addComputeSeconds(frameElapsedSeconds)) {
+                    cout << "[quota] Daily compute limit of 1.5 hours reached! Halting simulation.\n";
+                    runtimeControls.paused = true;
+                    isSimRunning = false;
+                    controlBridge.replaceState(runtimeControls);
+                    broadcaster.broadcastText(encodeControlStateMessage(runtimeControls));
+                    broadcaster.notifySimStateChanged();
+                    continue;
+                }
+            }
+
+            // Output performance metrics every 50 frames
             if (currentFrame % 50 == 0) 
                 cout << "Frame: " << currentFrame
                      << " | Bodies: " << system.size()
                      << " | Compute Time: " << frameTime.count() << " ms\n";
+
+            // Sync compute gauge and auth state every 60 frames (~0.6-1.0s)
+            if (currentFrame % 60 == 0) {
+                broadcaster.notifySimStateChanged();
+            }
             currentFrame++;
         }
 

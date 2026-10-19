@@ -7,7 +7,9 @@ using namespace std;
 
 enum class ScenarioKind {
 	Galaxy,
+	Galaxy10k,
 	GalaxyCollision,
+	GalaxyCollision15k,
 	StableOrbits,
 	AccretionDisk,
 };

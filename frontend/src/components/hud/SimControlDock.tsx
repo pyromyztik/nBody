@@ -39,16 +39,59 @@ export function SimControlDock({
   simDt,
   onSendControlMessage
 }: SimControlDockProps) {
-  const { userRole, hasMaster, masterName, spectatorCount } = useFrameStore((state) => ({
+  const {
+    userRole,
+    hasMaster,
+    masterName,
+    spectatorCount,
+    maxComputeSeconds,
+    computeRemainingSeconds,
+    isComputeExhausted,
+    isLocallyHosted
+  } = useFrameStore((state) => ({
     userRole: state.userRole,
     hasMaster: state.hasMaster,
     masterName: state.masterName,
-    spectatorCount: state.spectatorCount
+    spectatorCount: state.spectatorCount,
+    maxComputeSeconds: state.maxComputeSeconds,
+    computeRemainingSeconds: state.computeRemainingSeconds,
+    isComputeExhausted: state.isComputeExhausted,
+    isLocallyHosted: state.isLocallyHosted
   }));
-  const isMaster = userRole === 'master';
-  const effectiveDisabled = controlsDisabled || !isMaster;
-  const lockTitle = !isMaster ? `Controlled by Master (${masterName || 'Master'})` : undefined;
+  const isMaster = userRole === 'master' || isLocallyHosted;
+  const effectiveDisabled = controlsDisabled || (!isLocallyHosted && (!isMaster || isComputeExhausted));
+  const lockTitle = !isLocallyHosted
+    ? (isComputeExhausted
+        ? 'Daily compute limit reached (1.5h). Please return tomorrow.'
+        : (!isMaster ? `Controlled by Master (${masterName || 'Master'})` : undefined))
+    : undefined;
   const totalUsers = (hasMaster ? 1 : 0) + spectatorCount;
+
+  const remainingSeconds = Math.max(0, computeRemainingSeconds ?? 5400);
+  const totalMaxSeconds = maxComputeSeconds > 0 ? maxComputeSeconds : 5400;
+  const remainingFraction = Math.min(1, Math.max(0, remainingSeconds / totalMaxSeconds));
+
+  const hoursRemaining = Math.floor(remainingSeconds / 3600);
+  const minsRemaining = Math.floor((remainingSeconds % 3600) / 60);
+  const formattedFullRemaining = hoursRemaining > 0
+    ? `${hoursRemaining}h ${minsRemaining}m`
+    : `${minsRemaining}m`;
+
+  const formattedCompactRemaining = isComputeExhausted || remainingSeconds <= 0
+    ? '0m'
+    : remainingSeconds >= 3600
+      ? `${(remainingSeconds / 3600).toFixed(1)}h`
+      : `${Math.ceil(remainingSeconds / 60)}m`;
+
+  const strokeColor = isComputeExhausted || remainingFraction < 0.15
+    ? '#f87171'
+    : remainingFraction < 0.4
+      ? '#fbbf24'
+      : '#38bdf8';
+
+  const CIRCLE_RADIUS = 6.5;
+  const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * CIRCLE_RADIUS; // ~40.84
+  const strokeDashoffset = CIRCLE_CIRCUMFERENCE * (1 - remainingFraction);
 
   const speedPopoverCloseTimeoutRef = useRef<number | null>(null);
   const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false);
@@ -156,33 +199,71 @@ export function SimControlDock({
   return (
     <div className={styles.simControlDock}>
       <div className={styles.simControlFloatingGroup} role="group" aria-label="Simulation controls">
-        <div
-          className={styles.simControlUserBadge}
-          title={hasMaster ? `Master: ${masterName || 'Master'}` : 'No active master'}
-          aria-label={`Users joined: ${totalUsers}. Master: ${hasMaster ? (masterName || 'Master') : 'None'}`}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <path d="M16 3.128a4 4 0 0 1 0 7.744" />
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-            <circle cx="9" cy="7" r="4" />
-          </svg>
-          <span className={styles.simControlUserCount}>{totalUsers}</span>
-          <div className={styles.simControlUserTooltip} role="tooltip">
-            {hasMaster ? `Master: ${masterName || 'Master'}` : 'No active master'}
-          </div>
-        </div>
+        {!isLocallyHosted && (
+          <>
+            <div
+              className={styles.simControlUserBadge}
+              title={hasMaster ? `Master: ${masterName || 'Master'}` : 'No active master'}
+              aria-label={`Users joined: ${totalUsers}. Master: ${hasMaster ? (masterName || 'Master') : 'None'}`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <path d="M16 3.128a4 4 0 0 1 0 7.744" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <circle cx="9" cy="7" r="4" />
+              </svg>
+              <span className={styles.simControlUserCount}>{totalUsers}</span>
+              <div className={styles.simControlUserTooltip} role="tooltip">
+                {hasMaster ? `Master: ${masterName || 'Master'}` : 'No active master'}
+              </div>
+            </div>
+            <div
+              className={`${styles.simControlComputeBadge} ${isComputeExhausted ? styles.isComputeExhausted : ''}`.trim()}
+              title={isComputeExhausted ? 'Daily compute limit reached. Please return tomorrow.' : `Daily compute remaining: ${formattedFullRemaining} (1.5h limit)`}
+              aria-label={`Daily compute remaining: ${formattedFullRemaining}`}
+            >
+              <svg className={styles.computeCircleSvg} viewBox="0 0 20 20" aria-hidden="true">
+                <circle
+                  className={styles.computeCircleBg}
+                  cx="10"
+                  cy="10"
+                  r={CIRCLE_RADIUS}
+                  strokeWidth="2.5"
+                  fill="none"
+                />
+                <circle
+                  className={styles.computeCircleFg}
+                  cx="10"
+                  cy="10"
+                  r={CIRCLE_RADIUS}
+                  strokeWidth="2.5"
+                  fill="none"
+                  stroke={strokeColor}
+                  strokeDasharray={CIRCLE_CIRCUMFERENCE}
+                  strokeDashoffset={strokeDashoffset}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className={styles.simControlComputeText}>{formattedCompactRemaining}</span>
+              <div className={styles.simControlUserTooltip} role="tooltip">
+                {isComputeExhausted
+                  ? 'Daily compute limit reached (1.5h). Please return tomorrow.'
+                  : `Daily Compute: ${formattedFullRemaining} remaining of 1.5h today`}
+              </div>
+            </div>
+          </>
+        )}
         <button
           className={`${styles.simControlFab} ${simPaused ? styles.isPaused : ''}`.trim()}
           type="button"

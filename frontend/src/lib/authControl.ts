@@ -7,6 +7,13 @@ export type AuthState = {
   maxSpectators: number;
   isSimRunning: boolean;
   scenario?: string;
+  usedComputeSeconds?: number;
+  maxComputeSeconds?: number;
+  computeRemainingSeconds?: number;
+  isComputeExhausted?: boolean;
+  isLoginLocked?: boolean;
+  remainingLoginAttempts?: number;
+  locallyHosted?: boolean;
 };
 
 export type AuthResponse = {
@@ -29,10 +36,24 @@ export function parseAuthStateMessage(message: string): AuthState | null {
   const maxSpectatorsVal = searchParams.get('maxSpectators');
   const isSimRunningVal = searchParams.get('isSimRunning');
   const scenarioVal = searchParams.get('scenario');
+  const usedComputeVal = searchParams.get('usedCompute');
+  const maxComputeVal = searchParams.get('maxCompute');
+  const computeRemainingVal = searchParams.get('computeRemaining');
+  const computeExhaustedVal = searchParams.get('computeExhausted');
+  const loginLockedVal = searchParams.get('loginLocked');
+  const remainingAttemptsVal = searchParams.get('remainingAttempts');
+  const locallyHostedVal = searchParams.get('locallyHosted');
 
   if (hasMasterVal === null || spectatorCountVal === null) {
     return null;
   }
+
+  const maxComputeSeconds = maxComputeVal !== null ? parseFloat(maxComputeVal) : 5400;
+  const usedComputeSeconds = usedComputeVal !== null ? parseFloat(usedComputeVal) : 0;
+  const computeRemainingSeconds =
+    computeRemainingVal !== null
+      ? parseFloat(computeRemainingVal)
+      : Math.max(0, maxComputeSeconds - usedComputeSeconds);
 
   return {
     hasMaster: hasMasterVal === '1' || hasMasterVal === 'true',
@@ -40,7 +61,15 @@ export function parseAuthStateMessage(message: string): AuthState | null {
     spectatorCount: Math.max(0, parseInt(spectatorCountVal, 10) || 0),
     maxSpectators: Math.max(1, parseInt(maxSpectatorsVal || '6', 10)),
     isSimRunning: isSimRunningVal === '1' || isSimRunningVal === 'true',
-    scenario: scenarioVal ? decodeURIComponent(scenarioVal) : undefined
+    scenario: scenarioVal ? decodeURIComponent(scenarioVal) : undefined,
+    usedComputeSeconds,
+    maxComputeSeconds,
+    computeRemainingSeconds,
+    isComputeExhausted:
+      computeExhaustedVal === '1' || computeExhaustedVal === 'true' || computeRemainingSeconds <= 0,
+    isLoginLocked: loginLockedVal === '1' || loginLockedVal === 'true',
+    remainingLoginAttempts: remainingAttemptsVal !== null ? parseInt(remainingAttemptsVal, 10) : 5,
+    locallyHosted: locallyHostedVal === '1' || locallyHostedVal === 'true'
   };
 }
 

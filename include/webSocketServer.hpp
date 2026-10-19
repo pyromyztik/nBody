@@ -16,6 +16,8 @@
 #include <thread>
 #include <vector>
 
+#include "computeQuotaManager.hpp"
+
 namespace nbody_auth {
 
 inline std::string urlDecode(const std::string& in) {
@@ -56,14 +58,36 @@ inline std::string urlEncode(const std::string& in) {
     return escaped.str();
 }
 
-inline std::string buildAuthStateMessage(bool hasMaster, const std::string& masterName, int spectatorCount, int maxSpectators, bool isSimRunning, const std::string& scenarioTitle = "") {
+inline std::string buildAuthStateMessage(
+    bool hasMaster,
+    const std::string& masterName,
+    int spectatorCount,
+    int maxSpectators,
+    bool isSimRunning,
+    const std::string& scenarioTitle = "",
+    double usedCompute = 0.0,
+    double maxCompute = 5400.0,
+    double computeRemaining = 5400.0,
+    bool computeExhausted = false,
+    bool loginLocked = false,
+    int remainingAttempts = 5,
+    bool locallyHosted = false
+) {
     std::ostringstream ss;
+    ss << std::fixed << std::setprecision(2);
     ss << "auth:state?hasMaster=" << (hasMaster ? 1 : 0)
        << "&masterName=" << urlEncode(masterName)
        << "&spectatorCount=" << spectatorCount
        << "&maxSpectators=" << maxSpectators
        << "&isSimRunning=" << (isSimRunning ? 1 : 0)
-       << "&scenario=" << urlEncode(scenarioTitle);
+       << "&scenario=" << urlEncode(scenarioTitle)
+       << "&usedCompute=" << usedCompute
+       << "&maxCompute=" << maxCompute
+       << "&computeRemaining=" << computeRemaining
+       << "&computeExhausted=" << (computeExhausted ? 1 : 0)
+       << "&loginLocked=" << (loginLocked ? 1 : 0)
+       << "&remainingAttempts=" << remainingAttempts
+       << "&locallyHosted=" << (locallyHosted ? 1 : 0);
     return ss.str();
 }
 
@@ -90,18 +114,26 @@ public:
 
     FrameBroadcaster(
         unsigned short port,
+        ComputeQuotaManager* quotaManager = nullptr,
+        bool locallyHosted = false,
         TextMessageHandler onTextMessage = {},
         InitialTextMessageProvider initialTextMessageProvider = {},
         SimRunningProvider isSimRunning = {},
         MasterDisconnectedHandler onMasterDisconnected = {}
-    ) : onTextMessage_(std::move(onTextMessage)),
+    ) : quotaManager_(quotaManager),
+        locallyHosted_(locallyHosted),
+        onTextMessage_(std::move(onTextMessage)),
         initialTextMessageProvider_(std::move(initialTextMessageProvider)),
         isSimRunning_(std::move(isSimRunning)),
         onMasterDisconnected_(std::move(onMasterDisconnected)) {
 
-        const char* envPwd = std::getenv("SIM_MASTER_PASSWORD");
-        masterPassword_ = (envPwd && envPwd[0] != '\0') ? std::string(envPwd) : "master123";
-        std::cout << "[auth] Master password configured: " << masterPassword_ << "\n";
+        if (locallyHosted_) {
+            std::cout << "[auth] Running in locally-hosted mode: password auth and limits bypassed.\n";
+        } else {
+            const char* envPwd = std::getenv("SIM_MASTER_PASSWORD");
+            masterPassword_ = (envPwd && envPwd[0] != '\0') ? std::string(envPwd) : "s#w1Ft!@5173";
+            std::cout << "[auth] Master password configured: " << masterPassword_ << "\n";
+        }
 
         serverThread_ = std::thread([this, port]() {
             struct PerSocketData {
@@ -114,23 +146,68 @@ public:
             app_ = &app;
             loop_ = uWS::Loop::get();
 
-            auto sendAuthState = [this](auto* ws) {
+            auto getQuotaInfo = [this](double& used, double& maxC, double& rem, bool& exh, bool& locked, int& attempts, const std::string& ip = "") {
+                if (quotaManager_) {
+                    used = quotaManager_->getUsedComputeSeconds();
+                    maxC = quotaManager_->getMaxComputeSeconds();
+                    rem = quotaManager_->getRemainingComputeSeconds();
+                    exh = quotaManager_->isComputeExhausted();
+                    locked = quotaManager_->isLoginLocked(ip);
+                    attempts = quotaManager_->getRemainingLoginAttempts(ip);
+                } else {
+                    used = 0.0;
+                    maxC = 5400.0;
+                    rem = 5400.0;
+                    exh = false;
+                    locked = false;
+                    attempts = 5;
+                }
+            };
+
+            auto sendAuthState = [this, getQuotaInfo](auto* ws) {
+                if (locallyHosted_) {
+                    bool simRunning = isSimRunning_ ? isSimRunning_() : false;
+                    std::string title = getScenarioTitle();
+                    std::string msg = nbody_auth::buildAuthStateMessage(
+                        true, "Local Operator", 0, 0, simRunning, title,
+                        0.0, 0.0, 0.0, false, false, 5, true);
+                    ws->send(msg, uWS::OpCode::TEXT);
+                    return;
+                }
                 bool hasMaster = (currentMasterWs_ != nullptr);
                 bool simRunning = isSimRunning_ ? isSimRunning_() : false;
                 std::string title = getScenarioTitle();
+                std::string ip(ws->getRemoteAddressAsText());
+                double used = 0, maxC = 5400, rem = 5400; bool exh = false, locked = false; int attempts = 5;
+                getQuotaInfo(used, maxC, rem, exh, locked, attempts, ip);
                 std::string msg = nbody_auth::buildAuthStateMessage(
-                    hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title);
+                    hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title,
+                    used, maxC, rem, exh, locked, attempts, false);
                 ws->send(msg, uWS::OpCode::TEXT);
             };
 
-            auto broadcastAuthState = [this]() {
+            auto broadcastAuthState = [this, getQuotaInfo]() {
+                if (locallyHosted_) {
+                    bool simRunning = isSimRunning_ ? isSimRunning_() : false;
+                    std::string title = getScenarioTitle();
+                    std::string msg = nbody_auth::buildAuthStateMessage(
+                        true, "Local Operator", 0, 0, simRunning, title,
+                        0.0, 0.0, 0.0, false, false, 5, true);
+                    broadcastText(msg);
+                    return;
+                }
                 bool hasMaster = (currentMasterWs_ != nullptr);
                 bool simRunning = isSimRunning_ ? isSimRunning_() : false;
                 std::string title = getScenarioTitle();
+                double used = 0, maxC = 5400, rem = 5400; bool exh = false, locked = false; int attempts = 5;
+                getQuotaInfo(used, maxC, rem, exh, locked, attempts);
                 std::string msg = nbody_auth::buildAuthStateMessage(
-                    hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title);
+                    hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title,
+                    used, maxC, rem, exh, locked, attempts, false);
                 broadcastText(msg);
             };
+
+            broadcastAuthState_ = broadcastAuthState;
 
             app.template ws<PerSocketData>("/*", {
                 .compression = uWS::DISABLED,
@@ -142,6 +219,22 @@ public:
                     data->isMaster = false;
                     data->isSpectator = false;
                     data->clientName = "";
+
+                    if (locallyHosted_) {
+                        data->isMaster = true;
+                        data->isSpectator = false;
+                        data->clientName = "Local Operator";
+                        currentMasterWs_ = ws;
+                        ws->subscribe("frames");
+                        sendAuthState(ws);
+                        if (initialTextMessageProvider_) {
+                            std::string initMsg = initialTextMessageProvider_();
+                            if (!initMsg.empty()) {
+                                ws->send(initMsg, uWS::OpCode::TEXT);
+                            }
+                        }
+                        return;
+                    }
 
                     // Max connections: 1 master + 6 spectators = 7
                     // If master exists and spectator count is already at max, server is full.
@@ -181,10 +274,17 @@ public:
                     // Notify all other clients of updated spectator count
                     broadcastAuthState();
                 },
-                .message = [this, broadcastAuthState](auto* ws, std::string_view rawMessage, uWS::OpCode opCode) {
+                .message = [this, sendAuthState, broadcastAuthState](auto* ws, std::string_view rawMessage, uWS::OpCode opCode) {
                     if (opCode != uWS::OpCode::TEXT) return;
                     std::string message(rawMessage);
                     auto* data = ws->getUserData();
+
+                    if (locallyHosted_) {
+                        if (onTextMessage_) {
+                            onTextMessage_(message);
+                        }
+                        return;
+                    }
 
                     // Handle authentication commands
                     constexpr std::string_view LOGIN_PREFIX = "auth:login?";
@@ -208,10 +308,22 @@ public:
                             start = end + 1;
                         }
 
-                        if (password != masterPassword_) {
-                            std::cout << "[auth] Failed master login attempt with invalid password\n";
-                            ws->send("auth:error?reason=" + nbody_auth::urlEncode("Incorrect master password"), uWS::OpCode::TEXT);
-                            return;
+                        std::string clientIp(ws->getRemoteAddressAsText());
+
+                        if (quotaManager_) {
+                            auto verifyRes = quotaManager_->verifyAndRecordLogin(password, masterPassword_, clientIp);
+                            if (!verifyRes.allowed) {
+                                std::cout << "[auth] Failed master login attempt from " << clientIp << ": " << verifyRes.errorMessage << "\n";
+                                ws->send("auth:error?reason=" + nbody_auth::urlEncode(verifyRes.errorMessage), uWS::OpCode::TEXT);
+                                broadcastAuthState();
+                                return;
+                            }
+                        } else {
+                            if (password != masterPassword_) {
+                                std::cout << "[auth] Failed master login attempt with invalid password\n";
+                                ws->send("auth:error?reason=" + nbody_auth::urlEncode("Incorrect master password"), uWS::OpCode::TEXT);
+                                return;
+                            }
                         }
 
                         if (currentMasterWs_ != nullptr && currentMasterWs_ != ws) {
@@ -232,7 +344,7 @@ public:
                         currentMasterWs_ = ws;
                         masterName_ = name;
 
-                        std::cout << "[auth] Client authenticated as Master: " << masterName_ << "\n";
+                        std::cout << "[auth] Client authenticated as Master: " << masterName_ << " (" << clientIp << ")\n";
                         ws->send("auth:ok?role=master&masterName=" + nbody_auth::urlEncode(masterName_), uWS::OpCode::TEXT);
                         broadcastAuthState();
                         return;
@@ -256,11 +368,7 @@ public:
                     }
 
                     if (message == "auth:status") {
-                        bool hasMaster = (currentMasterWs_ != nullptr);
-                        bool simRunning = isSimRunning_ ? isSimRunning_() : false;
-                        std::string title = getScenarioTitle();
-                        ws->send(nbody_auth::buildAuthStateMessage(
-                            hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title), uWS::OpCode::TEXT);
+                        sendAuthState(ws);
                         return;
                     }
 
@@ -271,12 +379,28 @@ public:
                         return;
                     }
 
+                    // Check if compute quota is exhausted
+                    if (quotaManager_ && quotaManager_->isComputeExhausted()) {
+                        if (message != "control:set?paused=1" && message != "sim:console" && message != "sim:stop") {
+                            std::cout << "[quota] Blocked command due to exhausted daily compute: " << message << "\n";
+                            ws->send("auth:error?reason=" + nbody_auth::urlEncode("Daily compute limit reached. Please return tomorrow to continue using the simulation."), uWS::OpCode::TEXT);
+                            return;
+                        }
+                    }
+
                     if (onTextMessage_) {
                         onTextMessage_(message);
                     }
                 },
                 .close = [this, broadcastAuthState](auto* ws, int /*code*/, std::string_view /*message*/) {
                     auto* data = ws->getUserData();
+                    if (locallyHosted_) {
+                        if (currentMasterWs_ == ws) {
+                            currentMasterWs_ = nullptr;
+                        }
+                        return;
+                    }
+
                     if (data->isMaster || currentMasterWs_ == ws) {
                         std::cout << "[auth] Master disconnected (" << masterName_ << ")\n";
                         currentMasterWs_ = nullptr;
@@ -312,15 +436,14 @@ public:
     void notifySimStateChanged() {
         if (!loop_) return;
         loop_->defer([this]() {
-            bool hasMaster = (currentMasterWs_ != nullptr);
-            bool simRunning = isSimRunning_ ? isSimRunning_() : false;
-            std::string title = getScenarioTitle();
-            std::string msg = nbody_auth::buildAuthStateMessage(
-                hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title);
-            if (app_) {
-                app_->publish("frames", msg, uWS::OpCode::TEXT);
+            if (broadcastAuthState_) {
+                broadcastAuthState_();
             }
         });
+    }
+
+    void notifyQuotaChanged() {
+        notifySimStateChanged();
     }
 
     void broadcast(const std::shared_ptr<std::vector<uint8_t>>& payload) {
@@ -377,6 +500,9 @@ public:
     }
 
 private:
+    ComputeQuotaManager* quotaManager_ = nullptr;
+    bool locallyHosted_ = false;
+    std::function<void()> broadcastAuthState_;
     TextMessageHandler onTextMessage_;
     InitialTextMessageProvider initialTextMessageProvider_;
     SimRunningProvider isSimRunning_;

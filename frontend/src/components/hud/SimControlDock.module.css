@@ -76,6 +76,62 @@
   transform: translateY(0);
 }
 
+.simControlComputeBadge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(20, 22, 32, 0.7);
+  backdrop-filter: blur(6px);
+  color: #d7defd;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: default;
+  user-select: none;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.simControlComputeBadge:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.simControlComputeBadge.isComputeExhausted {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.08);
+  color: #f87171;
+}
+
+.computeCircleSvg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+}
+
+.computeCircleBg {
+  stroke: rgba(255, 255, 255, 0.15);
+}
+
+.computeCircleFg {
+  transition: stroke-dashoffset 300ms ease, stroke 300ms ease;
+}
+
+.simControlComputeText {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  font-size: 12px;
+}
+
+.simControlComputeBadge:hover .simControlUserTooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .simControlFab {
   display: inline-flex;
   align-items: center;

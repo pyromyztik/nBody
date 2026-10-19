@@ -1,4 +1,4 @@
-// Generated from schema/frame_sample.fbs (manually copied for browser use)
+// Generated from schema/frame_sample.fbs (manually curated for browser use)
 import * as flatbuffers from 'flatbuffers';
 
 export class FrameSample {
@@ -29,29 +29,62 @@ export class FrameSample {
     return o ? this.bb!.readUint32(this.bb_pos + o) : 0;
   }
 
-  bodies(index: number): number | null {
+  simDt(): number {
     const o = this.bb!.__offset(this.bb_pos, 8);
-    return o ? this.bb!.readFloat32(this.bb!.__vector(this.bb_pos + o) + index * 4) : null;
+    return o ? this.bb!.readFloat32(this.bb_pos + o) : 0.0;
+  }
+
+  bboxMinX(): number {
+    const o = this.bb!.__offset(this.bb_pos, 10);
+    return o ? this.bb!.readFloat32(this.bb_pos + o) : 0.0;
+  }
+
+  bboxMinY(): number {
+    const o = this.bb!.__offset(this.bb_pos, 12);
+    return o ? this.bb!.readFloat32(this.bb_pos + o) : 0.0;
+  }
+
+  bboxMinZ(): number {
+    const o = this.bb!.__offset(this.bb_pos, 14);
+    return o ? this.bb!.readFloat32(this.bb_pos + o) : 0.0;
+  }
+
+  bboxExtentX(): number {
+    const o = this.bb!.__offset(this.bb_pos, 16);
+    return o ? this.bb!.readFloat32(this.bb_pos + o) : 0.0;
+  }
+
+  bboxExtentY(): number {
+    const o = this.bb!.__offset(this.bb_pos, 18);
+    return o ? this.bb!.readFloat32(this.bb_pos + o) : 0.0;
+  }
+
+  bboxExtentZ(): number {
+    const o = this.bb!.__offset(this.bb_pos, 20);
+    return o ? this.bb!.readFloat32(this.bb_pos + o) : 0.0;
+  }
+
+  bodies(index: number): number | null {
+    const o = this.bb!.__offset(this.bb_pos, 22);
+    return o ? this.bb!.readUint16(this.bb!.__vector(this.bb_pos + o) + index * 2) : null;
   }
 
   bodiesLength(): number {
-    const o = this.bb!.__offset(this.bb_pos, 8);
+    const o = this.bb!.__offset(this.bb_pos, 22);
     return o ? this.bb!.__vector_len(this.bb_pos + o) : 0;
   }
 
-  bodiesArray(): Float32Array | null {
-    const o = this.bb!.__offset(this.bb_pos, 8);
+  bodiesArray(): Uint16Array | null {
+    const o = this.bb!.__offset(this.bb_pos, 22);
     if (!o) return null;
     const start = this.bb!.__vector(this.bb_pos + o);
     const length = this.bb!.__vector_len(this.bb_pos + o);
-    // Account for a non-zero byteOffset when the buffer is a subarray view.
     const bytes = this.bb!.bytes();
     const byteOffset = bytes.byteOffset + start;
     const byteLength = bytes.buffer.byteLength;
-    // Bounds guard to avoid RangeError on malformed / truncated frames.
-    if (byteOffset < 0 || byteOffset + length * 4 > byteLength) return null;
+    if (byteOffset < 0 || byteOffset + length * 2 > byteLength) return null;
     try {
-      return new Float32Array(bytes.buffer, byteOffset, length);
+      return new Uint16Array(bytes.buffer, byteOffset, length);
     } catch {
       return null;
     }

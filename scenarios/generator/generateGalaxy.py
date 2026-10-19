@@ -1234,7 +1234,7 @@ def parse_args():
     parser.add_argument(
         "--out",
         type=str,
-        default=str(Path(__file__).with_name("galaxy.bin")),
+        default=str(Path(__file__).resolve().parent.parent / "galaxy_30k.bin"),
         help="output binary snapshot path",
     )
     return parser.parse_args()

@@ -12,7 +12,6 @@ type HudPanelProps = {
   controlsDisabled: boolean;
   onSendControlMessage: (message: string) => boolean;
   onBackToLanding: () => void;
-  onOpenMasterLogin?: () => void;
 };
 
 function HudStats() {
@@ -86,8 +85,7 @@ export function HudPanel({
   wsUrl,
   controlsDisabled,
   onSendControlMessage,
-  onBackToLanding,
-  onOpenMasterLogin
+  onBackToLanding
 }: HudPanelProps) {
   const [hudMinimized, setHudMinimized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);

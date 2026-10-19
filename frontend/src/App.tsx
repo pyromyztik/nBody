@@ -15,7 +15,6 @@ import {
 import { MobileJoystick } from './components/hud/MobileJoystick';
 import { HudPanel } from './components/hud/HudPanel';
 import { SimControlDock } from './components/hud/SimControlDock';
-import { MasterLoginModal } from './components/auth/MasterLoginModal';
 import { ThreeNBody } from './graphics/ThreeNBody.tsx';
 import {
   formatScenarioStartMessage,
@@ -47,7 +46,6 @@ type SimulationPageProps = {
   scenarioSelection: ScenarioSelection | null;
   socketControls: SocketControls | null;
   onBackToLanding: () => void;
-  onOpenMasterLogin?: () => void;
 };
 
 type SimulationLoadingOverlayProps = {
@@ -75,8 +73,10 @@ function getScenarioTitle(selection: ScenarioSelection | null): string {
   if (!selection) return 'Live Simulation';
   switch (selection.kind) {
     case 'galaxy':
+    case 'galaxy-10k':
       return 'Galaxy';
     case 'galaxy-collision':
+    case 'galaxy-collision-15k':
       return 'Galaxy Collision';
     case 'stable-orbits':
       return 'Stable Orbits';
@@ -119,8 +119,7 @@ function SimulationPage({
   scenarioStartMessage,
   scenarioSelection,
   socketControls,
-  onBackToLanding,
-  onOpenMasterLogin
+  onBackToLanding
 }: SimulationPageProps) {
   const {
     status,
@@ -133,7 +132,9 @@ function SimulationPage({
     hasMaster,
     masterName,
     isSimRunning,
-    activeScenarioTitle
+    activeScenarioTitle,
+    isComputeExhausted,
+    isLocallyHosted
   } = useFrameStore(
     (state) => ({
       status: state.status,
@@ -146,7 +147,9 @@ function SimulationPage({
       hasMaster: state.hasMaster,
       masterName: state.masterName,
       isSimRunning: state.isSimRunning,
-      activeScenarioTitle: state.activeScenarioTitle
+      activeScenarioTitle: state.activeScenarioTitle,
+      isComputeExhausted: state.isComputeExhausted,
+      isLocallyHosted: state.isLocallyHosted
     }),
     shallow
   );
@@ -156,7 +159,7 @@ function SimulationPage({
   const scenarioStartSentRef = useRef(false);
   const [scenarioStartDispatched, setScenarioStartDispatched] = useState(false);
   const hasFirstFrame = positions !== null && bodyCount > 0;
-  const isMaster = userRole === 'master';
+  const isMaster = userRole === 'master' || isLocallyHosted;
 
   // Frames prove the backend has loaded a runnable simulation even if the control-state
   // snapshot text message was delayed or missed.
@@ -332,7 +335,6 @@ function SimulationPage({
         controlsDisabled={controlsDisabled}
         onSendControlMessage={sendControlMessage}
         onBackToLanding={handleBackToLandingRequest}
-        onOpenMasterLogin={onOpenMasterLogin}
       />
       <SimControlDock
         controlsDisabled={controlsDisabled}
@@ -355,6 +357,43 @@ function SimulationPage({
           onBackToLanding={handleBackToLandingRequest}
         />
       )}
+      {!isLocallyHosted && isComputeExhausted && (
+        <div className={appStyles.quotaModalShell} role="alert" aria-live="assertive">
+          <div className={appStyles.quotaModalCard}>
+            <div className={appStyles.quotaModalIcon} aria-hidden="true">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+            <h2 className={appStyles.quotaModalTitle}>Daily Compute Limit Reached</h2>
+            <p className={appStyles.quotaModalDesc}>
+              The server&apos;s daily compute quota (1.5 cumulative hours) has been exhausted for today.
+            </p>
+            <p className={appStyles.quotaModalSubtext}>
+              Active physics simulation has been paused. Please return tomorrow to continue using the simulator.
+            </p>
+            <button
+              className={appStyles.quotaModalButton}
+              type="button"
+              onClick={handleBackToLandingRequest}
+            >
+              Back to Console
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -367,37 +406,18 @@ export default function App() {
     useState<ScenarioSelection | null>(null);
   const [isSpectating, setIsSpectating] = useState(false);
   const [simulationSessionToken, setSimulationSessionToken] = useState(0);
-  const [masterLoginOpen, setMasterLoginOpen] = useState(false);
 
   const [socketControls, setSocketControls] = useState<SocketControls | null>(null);
 
-  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull } = useFrameStore((state) => ({
+  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted } = useFrameStore((state) => ({
     status: state.status,
     userRole: state.userRole,
     hasMaster: state.hasMaster,
     lastAuthError: state.lastAuthError,
     hasReceivedAuthState: state.hasReceivedAuthState,
-    isServerFull: state.isServerFull
+    isServerFull: state.isServerFull,
+    isLocallyHosted: state.isLocallyHosted
   }));
-
-  const initialAuthPromptCheckedRef = useRef(false);
-
-  useEffect(() => {
-    if (status === 'disconnected' || status === 'error') {
-      initialAuthPromptCheckedRef.current = false;
-    }
-  }, [status]);
-
-  // Automatically present the master auth modal as the first thing on load if no master exists
-  useEffect(() => {
-    if (!hasReceivedAuthState) return;
-    if (initialAuthPromptCheckedRef.current) return;
-
-    initialAuthPromptCheckedRef.current = true;
-    if (!hasMaster && userRole !== 'master') {
-      setMasterLoginOpen(true);
-    }
-  }, [hasReceivedAuthState, hasMaster, userRole]);
 
   // Initialize and maintain root WebSocket connection
   useEffect(() => {
@@ -446,13 +466,6 @@ export default function App() {
     }
   }, [lastAuthError]);
 
-  // When user successfully authenticates as master, close modal
-  useEffect(() => {
-    if (userRole === 'master') {
-      setMasterLoginOpen(false);
-    }
-  }, [userRole]);
-
   const navigateToRoute = useCallback((nextRoute: AppRoute, replace = false) => {
     const nextPath = pathForRoute(nextRoute);
     if (window.location.pathname !== nextPath) {
@@ -480,8 +493,8 @@ export default function App() {
   // "as a client, i should simply be taken to whatever is currently being simulated immediately rather than seeing the console landing page,
   // and only when there is no master should I be put in the console landing page."
   useEffect(() => {
-    if (userRole === 'master') {
-      return; // Master freely navigates between landing and simulation
+    if (isLocallyHosted || userRole === 'master') {
+      return; // Master or locally-hosted operator freely navigates between landing and simulation
     }
 
     if (hasMaster) {
@@ -648,24 +661,17 @@ export default function App() {
           scenarioSelection={activeScenarioSelection}
           socketControls={socketControls}
           onBackToLanding={handleBackToLanding}
-          onOpenMasterLogin={() => setMasterLoginOpen(true)}
         />
       ) : (
         <LandingPage
           formState={scenarioFormState}
           onFormStateChange={setScenarioFormState}
           onSimulate={handleStartSimulation}
-          onOpenMasterLogin={() => setMasterLoginOpen(true)}
+          onMasterLogin={handleMasterLogin}
           onMasterLogout={handleMasterLogout}
+          authErrorMessage={lastAuthError}
         />
       )}
-
-      <MasterLoginModal
-        isOpen={masterLoginOpen}
-        onClose={() => setMasterLoginOpen(false)}
-        onLogin={handleMasterLogin}
-        errorMessage={lastAuthError}
-      />
     </div>
   );
 }

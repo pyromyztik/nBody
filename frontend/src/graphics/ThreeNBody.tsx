@@ -34,8 +34,8 @@ type ThreeNBodyProps = {
   renderTheme?: BodyRenderTheme;
 };
 
-const MIN_BODY_INTERPOLATION_MS = 16;
-const MAX_BODY_INTERPOLATION_MS = 400;
+const MIN_BODY_INTERPOLATION_MS = 2;
+const MAX_BODY_INTERPOLATION_MS = 500;
 
 export const ThreeNBody = React.memo(function ThreeNBody({
   virtualMoveX = 0,
@@ -152,8 +152,10 @@ export const ThreeNBody = React.memo(function ThreeNBody({
     let displayPositions = new Float32Array(0);
     let blendStartPositions = new Float32Array(0);
     let blendTargetPositions = new Float32Array(0);
+    let blendDeltaPositions = new Float32Array(0);
     let blendStartTime = 0;
     let blendDurationMs = 0;
+    let smoothedFrameIntervalMs = 1000 / 60;
     let blendActive = false;
     let boundsCenter = new Vector3(0, 0, 0);
     let boundsRadius = 1;
@@ -176,6 +178,7 @@ export const ThreeNBody = React.memo(function ThreeNBody({
     let latestSpeedSpan = 1;
     let latestAccelerationMin = 0;
     let latestAccelerationSpan = 1;
+    let lastVboUploadTime = 0;
     const vectorScaleRadius = VECTOR_OVERLAY_SCALE_RADIUS;
     const lastBodyUpdateCameraPos = new Vector3(Number.NaN, Number.NaN, Number.NaN);
 
@@ -219,6 +222,7 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         displayPositions = new Float32Array(floatCount);
         blendStartPositions = new Float32Array(floatCount);
         blendTargetPositions = new Float32Array(floatCount);
+        blendDeltaPositions = new Float32Array(floatCount);
         blendActive = false;
       }
     };
@@ -228,6 +232,7 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       displayPositions.set(positions);
       blendStartPositions.set(positions);
       blendTargetPositions.set(positions);
+      blendDeltaPositions.fill(0);
       blendStartTime = 0;
       blendDurationMs = 0;
       blendActive = false;
@@ -239,13 +244,26 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       nowMs: number
     ) => {
       ensureDisplayBuffers(positions.length);
-      blendStartPositions.set(displayPositions);
-      blendTargetPositions.set(positions);
+      const len = positions.length;
+
+      // Filter out network packet arrival jitter with exponential moving average
+      if (durationMs >= 2 && durationMs <= 500) {
+        smoothedFrameIntervalMs = smoothedFrameIntervalMs * 0.7 + durationMs * 0.3;
+      }
+
       blendStartTime = nowMs;
       blendDurationMs = Math.min(
         MAX_BODY_INTERPOLATION_MS,
-        Math.max(MIN_BODY_INTERPOLATION_MS, durationMs)
+        Math.max(MIN_BODY_INTERPOLATION_MS, smoothedFrameIntervalMs)
       );
+
+      // Precalculate start and delta vectors for ultra-fast linear interpolation in renderLoop
+      for (let i = 0; i < len; i++) {
+        const cur = displayPositions[i];
+        blendStartPositions[i] = cur;
+        blendTargetPositions[i] = positions[i];
+        blendDeltaPositions[i] = positions[i] - cur;
+      }
       blendActive = true;
     };
 
@@ -254,17 +272,25 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         return false;
       }
 
-      const rawProgress = Math.min(1, Math.max(0, (nowMs - blendStartTime) / blendDurationMs));
-      const easedProgress = rawProgress * rawProgress * (3 - 2 * rawProgress);
-      const inverseProgress = 1 - easedProgress;
+      const elapsed = nowMs - blendStartTime;
+      const rawProgress = elapsed / blendDurationMs;
 
-      for (let i = 0; i < displayPositions.length; i++) {
-        displayPositions[i] =
-          blendStartPositions[i] * inverseProgress + blendTargetPositions[i] * easedProgress;
+      // When simulation is paused, clamp at 1.0. When active, allow gentle coasting up to 1.35
+      // to bridge small network jitter delays without freezing in place.
+      const isPaused = useFrameStore.getState().simPaused;
+      const maxProgress = isPaused ? 1.0 : 1.35;
+      const progress = Math.min(maxProgress, Math.max(0, rawProgress));
+
+      const len = displayPositions.length;
+      for (let i = 0; i < len; i++) {
+        displayPositions[i] = blendStartPositions[i] + blendDeltaPositions[i] * progress;
       }
 
-      if (rawProgress >= 1) {
-        displayPositions.set(blendTargetPositions);
+      // If we've coasted beyond the limit without new frames arriving, pause updating
+      if (rawProgress >= maxProgress) {
+        if (isPaused) {
+          displayPositions.set(blendTargetPositions);
+        }
         blendActive = false;
       }
 
@@ -319,7 +345,6 @@ export const ThreeNBody = React.memo(function ThreeNBody({
           previousFrameSampleTime = 0;
         }
 
-        lastFrame = frame;
         if (lastBodyCount === 0 && bodyCount > 0) {
           needsFit = true;
         }
@@ -329,14 +354,17 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         if (speedScratch.length !== bodyCount) {
           speedScratch = new Float32Array(bodyCount);
         }
-        if (accelerationVectorScratch.length !== bodyCount * 3) {
-          accelerationVectorScratch = new Float32Array(bodyCount * 3);
+        if (showAccelerationVectors) {
+          if (accelerationVectorScratch.length !== bodyCount * 3) {
+            accelerationVectorScratch = new Float32Array(bodyCount * 3);
+          }
+          if (accelerationMagnitudeScratch.length !== bodyCount) {
+            accelerationMagnitudeScratch = new Float32Array(bodyCount);
+          }
         }
-        if (accelerationMagnitudeScratch.length !== bodyCount) {
-          accelerationMagnitudeScratch = new Float32Array(bodyCount);
-        }
-        if (percentileScratch.length !== bodyCount) {
-          percentileScratch = new Float32Array(bodyCount);
+        const neededPercentileLen = Math.min(bodyCount, 1024);
+        if (percentileScratch.length < neededPercentileLen) {
+          percentileScratch = new Float32Array(neededPercentileLen);
         }
 
         for (let i = 0; i < bodyCount; i++) {
@@ -356,37 +384,71 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         );
         const speedSpan = Math.max(speedMax - speedMin, 1e-6);
 
-        const hasPrevious =
-          previousVelocitySnapshot.length === velocities.length
-          && previousFrameSampleTime > 0
-          && lastFrameTime > previousFrameSampleTime;
-        const deltaTimeSec = hasPrevious ? (lastFrameTime - previousFrameSampleTime) / 1000 : 0;
-        const invDeltaTime = deltaTimeSec > 1e-6 ? 1 / deltaTimeSec : 0;
-
-        if (hasPrevious && invDeltaTime > 0) {
-          for (let i = 0; i < bodyCount; i++) {
-            const base = i * 3;
-            const ax = (velocities[base] - previousVelocitySnapshot[base]) * invDeltaTime;
-            const ay = (velocities[base + 1] - previousVelocitySnapshot[base + 1]) * invDeltaTime;
-            const az = (velocities[base + 2] - previousVelocitySnapshot[base + 2]) * invDeltaTime;
-            accelerationVectorScratch[base] = ax;
-            accelerationVectorScratch[base + 1] = ay;
-            accelerationVectorScratch[base + 2] = az;
-            accelerationMagnitudeScratch[i] = Math.sqrt(ax * ax + ay * ay + az * az);
-          }
+        if (isResetOrRewind || latestSpeedSpan <= 1e-6 || lastFrame < 0) {
+          latestSpeedMin = speedMin;
+          latestSpeedSpan = speedSpan;
         } else {
-          accelerationVectorScratch.fill(0);
-          accelerationMagnitudeScratch.fill(0);
+          // Smooth the color palette normalization ranges across ~250ms
+          const spanAlpha = Math.min(1.0, Math.max(0.05, frameIntervalMs / 250));
+          const invSpanAlpha = 1 - spanAlpha;
+          latestSpeedMin = latestSpeedMin * invSpanAlpha + speedMin * spanAlpha;
+          latestSpeedSpan = latestSpeedSpan * invSpanAlpha + speedSpan * spanAlpha;
         }
 
-        const [accMin, accMax] = percentileRange(
-          accelerationMagnitudeScratch,
-          bodyCount,
-          0.05,
-          0.95,
-          percentileScratch
-        );
-        const accSpan = Math.max(accMax - accMin, 1e-6);
+        if (showAccelerationVectors) {
+          const hasPrevious =
+            !isResetOrRewind
+            && previousVelocitySnapshot.length === velocities.length
+            && lastFrame >= 0
+            && frame > lastFrame;
+          const frameDelta = hasPrevious ? frame - lastFrame : 1;
+          const activeSimDt = state.simDt > 0 ? state.simDt : 0.016667;
+          const effectiveSimDt = frameDelta * activeSimDt;
+          const invDeltaTime = effectiveSimDt > 1e-6 ? 1 / effectiveSimDt : 0;
+
+          if (hasPrevious && invDeltaTime > 0) {
+            const accAlpha = Math.min(1.0, Math.max(0.12, frameIntervalMs / 120));
+            const invAccAlpha = 1 - accAlpha;
+            for (let i = 0; i < bodyCount; i++) {
+              const base = i * 3;
+              const rawAx = (velocities[base] - previousVelocitySnapshot[base]) * invDeltaTime;
+              const rawAy = (velocities[base + 1] - previousVelocitySnapshot[base + 1]) * invDeltaTime;
+              const rawAz = (velocities[base + 2] - previousVelocitySnapshot[base + 2]) * invDeltaTime;
+              const curAx = accelerationVectorScratch[base];
+              const curAy = accelerationVectorScratch[base + 1];
+              const curAz = accelerationVectorScratch[base + 2];
+              const ax = curAx * invAccAlpha + rawAx * accAlpha;
+              const ay = curAy * invAccAlpha + rawAy * accAlpha;
+              const az = curAz * invAccAlpha + rawAz * accAlpha;
+              accelerationVectorScratch[base] = ax;
+              accelerationVectorScratch[base + 1] = ay;
+              accelerationVectorScratch[base + 2] = az;
+              accelerationMagnitudeScratch[i] = Math.sqrt(ax * ax + ay * ay + az * az);
+            }
+          } else {
+            accelerationVectorScratch.fill(0);
+            accelerationMagnitudeScratch.fill(0);
+          }
+
+          const [accMin, accMax] = percentileRange(
+            accelerationMagnitudeScratch,
+            bodyCount,
+            0.05,
+            0.95,
+            percentileScratch
+          );
+          const accSpan = Math.max(accMax - accMin, 1e-6);
+
+          if (isResetOrRewind || latestAccelerationSpan <= 1e-6 || lastFrame < 0) {
+            latestAccelerationMin = accMin;
+            latestAccelerationSpan = accSpan;
+          } else {
+            const spanAlpha = Math.min(1.0, Math.max(0.05, frameIntervalMs / 250));
+            const invSpanAlpha = 1 - spanAlpha;
+            latestAccelerationMin = latestAccelerationMin * invSpanAlpha + accMin * spanAlpha;
+            latestAccelerationSpan = latestAccelerationSpan * invSpanAlpha + accSpan * spanAlpha;
+          }
+        }
 
         bodyRadius = BODY_SPHERE_RADIUS;
         bodyInstances.setBodyRadius(bodyRadius);
@@ -394,10 +456,6 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         latestVelocities = velocities;
         latestAccelerationVectors = accelerationVectorScratch;
         latestAccelerationMagnitudes = accelerationMagnitudeScratch;
-        latestSpeedMin = speedMin;
-        latestSpeedSpan = speedSpan;
-        latestAccelerationMin = accMin;
-        latestAccelerationSpan = accSpan;
         lastBodyUpdateCameraPos.copyFrom(camera.position);
 
         if (previousVelocitySnapshot.length !== velocities.length) {
@@ -405,6 +463,7 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         }
         previousVelocitySnapshot.set(velocities);
         previousFrameSampleTime = lastFrameTime;
+        lastFrame = frame;
 
         if (needsFit) {
           cameraRig.fitToBounds();
@@ -548,7 +607,25 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         const camDy = camera.position.y - lastBodyUpdateCameraPos.y;
         const camDz = camera.position.z - lastBodyUpdateCameraPos.z;
         const cameraMovedSq = camDx * camDx + camDy * camDy + camDz * camDz;
-        if (frameChanged || displayPositionsChanged || cameraMovedSq > 1e-6) {
+        const cameraSignificantlyMoved = cameraMovedSq > 1e-4;
+
+        // Adaptive VBO update throttle for subframe interpolation:
+        // Always update immediately on a fresh simulation frame (frameChanged === true) or camera move.
+        // For subframe display interpolation:
+        // - Small to moderate clouds (<= 4000): full RAF rate (up to 150/240Hz).
+        // - Medium clouds (4000 - 12000): throttle to <= 60 FPS (min 16ms).
+        // - Giant clouds (> 12000, e.g. 30k Galaxy Collision): throttle to <= 35 FPS (min 28ms).
+        const minVboIntervalMs =
+          lastBodyCount > 12000 ? 28 : (lastBodyCount > 4000 ? 16 : 0);
+        const timeSinceLastVbo = now - lastVboUploadTime;
+
+        const shouldUploadVbo =
+          frameChanged
+          || cameraSignificantlyMoved
+          || (displayPositionsChanged && timeSinceLastVbo >= minVboIntervalMs);
+
+        if (shouldUploadVbo) {
+          const colorsDirty = frameChanged || cameraSignificantlyMoved;
           bodyInstances.update(
             displayPositions,
             speedScratch,
@@ -556,9 +633,11 @@ export const ThreeNBody = React.memo(function ThreeNBody({
             latestSpeedMin,
             latestSpeedSpan,
             camera.position,
-            BILLBOARD_SWITCH_DISTANCE * BILLBOARD_SWITCH_DISTANCE
+            BILLBOARD_SWITCH_DISTANCE * BILLBOARD_SWITCH_DISTANCE,
+            colorsDirty
           );
           lastBodyUpdateCameraPos.copyFrom(camera.position);
+          lastVboUploadTime = now;
         }
       }
 

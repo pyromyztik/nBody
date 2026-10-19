@@ -22,7 +22,9 @@ export type StableOrbitFamily = (typeof STABLE_ORBIT_FAMILIES)[number];
 
 export type ScenarioKind =
   | 'galaxy'
+  | 'galaxy-10k'
   | 'galaxy-collision'
+  | 'galaxy-collision-15k'
   | 'stable-orbits'
   | 'accretion-disk';
 
@@ -31,7 +33,13 @@ export type ScenarioSelection =
       kind: 'galaxy';
     }
   | {
+      kind: 'galaxy-10k';
+    }
+  | {
       kind: 'galaxy-collision';
+    }
+  | {
+      kind: 'galaxy-collision-15k';
     }
   | {
       kind: 'stable-orbits';
@@ -94,7 +102,12 @@ export function deriveAccretionDiskRadiusFromBodyCount(bodyCount: number): numbe
 }
 
 export function validateScenarioSelection(selection: ScenarioSelection): string | null {
-  if (selection.kind === 'galaxy' || selection.kind === 'galaxy-collision') {
+  if (
+    selection.kind === 'galaxy' ||
+    selection.kind === 'galaxy-10k' ||
+    selection.kind === 'galaxy-collision' ||
+    selection.kind === 'galaxy-collision-15k'
+  ) {
     return null;
   }
 

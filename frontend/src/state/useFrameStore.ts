@@ -8,7 +8,14 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'er
 export type FramePayload = {
   frame: number;
   bodyCount: number;
-  bodies: Float32Array;
+  simDt: number;
+  minX: number;
+  minY: number;
+  minZ: number;
+  extentX: number;
+  extentY: number;
+  extentZ: number;
+  bodies: Uint16Array;
   receivedAt: number;
   bytes: number;
 };
@@ -42,6 +49,13 @@ export type FrameState = {
   hasReceivedAuthState: boolean;
   activeScenarioTitle: string;
   isServerFull: boolean;
+  usedComputeSeconds: number;
+  maxComputeSeconds: number;
+  computeRemainingSeconds: number;
+  isComputeExhausted: boolean;
+  isLoginLocked: boolean;
+  remainingLoginAttempts: number;
+  isLocallyHosted: boolean;
 };
 
 export type FrameActions = {
@@ -55,6 +69,7 @@ export type FrameActions = {
   setCameraBaseMoveSpeed: (speed: number) => void;
   setSimControlSnapshot: (snapshot: SimControlSnapshot) => void;
   setUserRole: (role: UserRole) => void;
+  setIsLocallyHosted: (isLocallyHosted: boolean) => void;
   setAuthState: (state: Partial<AuthState>) => void;
   setLastAuthError: (error: string | null) => void;
   setIsServerFull: (isFull: boolean) => void;
@@ -67,6 +82,20 @@ const DEFAULT_SIM_CONTROL_STATE: SimControlSnapshot = {
   dt: 0.016667,
   defaultDt: 0.016667
 };
+
+let positionBuffers: [Float32Array, Float32Array, Float32Array] = [
+  new Float32Array(0),
+  new Float32Array(0),
+  new Float32Array(0)
+];
+let historyFrames: [number, number, number] = [-1, -1, -1];
+let activeBufferIdx = 0;
+let velocityFilterInitialized = false;
+
+function resetPositionHistory() {
+  historyFrames = [-1, -1, -1];
+  velocityFilterInitialized = false;
+}
 
 export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   frame: 0,
@@ -97,38 +126,131 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   hasReceivedAuthState: false,
   activeScenarioTitle: 'Galaxy',
   isServerFull: false,
-  pushFrame: ({ frame, bodyCount, bodies, receivedAt, bytes }) => {
+  usedComputeSeconds: 0,
+  maxComputeSeconds: 5400,
+  computeRemainingSeconds: 5400,
+  isComputeExhausted: false,
+  isLoginLocked: false,
+  remainingLoginAttempts: 5,
+  isLocallyHosted: false,
+  pushFrame: ({
+    frame,
+    bodyCount,
+    simDt,
+    minX,
+    minY,
+    minZ,
+    extentX,
+    extentY,
+    extentZ,
+    bodies,
+    receivedAt,
+    bytes
+  }) => {
     const prev = get();
     const dt = receivedAt - prev.lastFrameTime;
     const fps = dt > 0 ? 1000 / dt : prev.fps;
     const valueCount = bodyCount * 3;
 
-    let positions = prev.positions;
-    if (!positions || positions.length !== valueCount) {
-      positions = new Float32Array(valueCount);
+    if (positionBuffers[0].length !== valueCount) {
+      positionBuffers = [
+        new Float32Array(valueCount),
+        new Float32Array(valueCount),
+        new Float32Array(valueCount)
+      ];
+      resetPositionHistory();
+      activeBufferIdx = 0;
+    }
+
+    const currentPositions = positionBuffers[activeBufferIdx];
+
+    const inv65535 = 1 / 65535;
+    const scaleX = extentX * inv65535;
+    const scaleY = extentY * inv65535;
+    const scaleZ = extentZ * inv65535;
+
+    for (let i = 0, j = 0; i < bodyCount; i++, j += 3) {
+      currentPositions[j] = minX + bodies[j] * scaleX;
+      currentPositions[j + 1] = minY + bodies[j + 1] * scaleY;
+      currentPositions[j + 2] = minZ + bodies[j + 2] * scaleZ;
     }
 
     let velocities = prev.velocities;
     if (!velocities || velocities.length !== valueCount) {
       velocities = new Float32Array(valueCount);
+      velocityFilterInitialized = false;
     }
 
-    for (let bodyIndex = 0, positionIndex = 0, velocityIndex = 0; bodyIndex < bodyCount; bodyIndex += 1) {
-      const sourceIndex = bodyIndex * 6;
-      positions[positionIndex++] = bodies[sourceIndex];
-      positions[positionIndex++] = bodies[sourceIndex + 1];
-      positions[positionIndex++] = bodies[sourceIndex + 2];
+    const idxPrev1 = (activeBufferIdx + 2) % 3;
+    const idxPrev2 = (activeBufferIdx + 1) % 3;
+    const framePrev1 = historyFrames[idxPrev1];
+    const framePrev2 = historyFrames[idxPrev2];
+    const posPrev1 = positionBuffers[idxPrev1];
+    const posPrev2 = positionBuffers[idxPrev2];
 
-      velocities[velocityIndex++] = bodies[sourceIndex + 3];
-      velocities[velocityIndex++] = bodies[sourceIndex + 4];
-      velocities[velocityIndex++] = bodies[sourceIndex + 5];
+    const isConsecutive1 =
+      framePrev1 >= 0 &&
+      frame > framePrev1 &&
+      bodyCount === prev.bodyCount &&
+      posPrev1.length === valueCount;
+
+    const isConsecutive2 =
+      isConsecutive1 &&
+      framePrev2 >= 0 &&
+      framePrev1 > framePrev2 &&
+      posPrev2.length === valueCount;
+
+    const activeSimDt = simDt > 0 ? simDt : (prev.simDt > 0 ? prev.simDt : 0.016667);
+
+    if (isConsecutive1) {
+      const frameDelta1 = frame - framePrev1;
+      const effectiveDt1 = frameDelta1 * activeSimDt;
+
+      // When 2 past frames are available, 2-step central/backward difference doubles
+      // the baseline and halves single-step integer quantization roundoff noise.
+      if (isConsecutive2) {
+        const frameDelta2 = frame - framePrev2;
+        const effectiveDt2 = frameDelta2 * activeSimDt;
+        const invDt2 = effectiveDt2 > 1e-6 ? 1 / effectiveDt2 : 0;
+
+        // Continuous-time exponential moving average with tau = 35ms.
+        // At 240 FPS (Figure-8), this filters out single-frame roundoff jitter
+        // while tracking real trajectory curvature without perceptible lag.
+        const alpha = Math.min(1.0, Math.max(0.08, 1 - Math.exp(-effectiveDt1 / 0.035)));
+
+        if (!velocityFilterInitialized) {
+          for (let i = 0; i < valueCount; i++) {
+            velocities[i] = (currentPositions[i] - posPrev2[i]) * invDt2;
+          }
+          velocityFilterInitialized = true;
+        } else {
+          const invAlpha = 1 - alpha;
+          for (let i = 0; i < valueCount; i++) {
+            const rawVel = (currentPositions[i] - posPrev2[i]) * invDt2;
+            velocities[i] = velocities[i] * invAlpha + rawVel * alpha;
+          }
+        }
+      } else {
+        const invDt1 = effectiveDt1 > 1e-6 ? 1 / effectiveDt1 : 0;
+        for (let i = 0; i < valueCount; i++) {
+          velocities[i] = (currentPositions[i] - posPrev1[i]) * invDt1;
+        }
+        velocityFilterInitialized = true;
+      }
+    } else {
+      velocities.fill(0);
+      resetPositionHistory();
     }
+
+    historyFrames[activeBufferIdx] = frame;
+    activeBufferIdx = (activeBufferIdx + 1) % 3;
 
     set({
       frame,
       bodyCount,
-      positions,
+      positions: currentPositions,
       velocities,
+      simDt: activeSimDt,
       fps,
       lastFrameTime: receivedAt,
       totalBytes: prev.totalBytes + bytes
@@ -143,6 +265,7 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
         };
       }
 
+      resetPositionHistory();
       return {
         status,
         frame: 0,
@@ -175,17 +298,25 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
       hasSimControlSnapshot: true
     }),
   setUserRole: (role: UserRole) => set({ userRole: role }),
+  setIsLocallyHosted: (isLocallyHosted: boolean) => set({ isLocallyHosted }),
   setAuthState: (partial: Partial<AuthState>) =>
-    set((state) => ({
-      ...state,
-      ...partial,
-      activeScenarioTitle: partial.scenario || state.activeScenarioTitle,
-      hasReceivedAuthState: true
-    })),
+    set((state) => {
+      const isLocallyHosted = partial.locallyHosted ?? state.isLocallyHosted;
+      const userRole = isLocallyHosted ? 'master' : (partial.hasMaster && state.userRole !== 'master' ? 'spectator' : state.userRole);
+      return {
+        ...state,
+        ...partial,
+        isLocallyHosted,
+        userRole,
+        activeScenarioTitle: partial.scenario || state.activeScenarioTitle,
+        hasReceivedAuthState: true
+      };
+    }),
   setLastAuthError: (error: string | null) => set({ lastAuthError: error }),
   setIsServerFull: (isServerFull: boolean) => set({ isServerFull }),
   setActiveScenarioTitle: (activeScenarioTitle: string) => set({ activeScenarioTitle }),
-  reset: () =>
+  reset: () => {
+    resetPositionHistory();
     set((state) => ({
       frame: 0,
       bodyCount: 0,
@@ -205,5 +336,6 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
       simDt: DEFAULT_SIM_CONTROL_STATE.dt,
       simDefaultDt: DEFAULT_SIM_CONTROL_STATE.defaultDt,
       hasSimControlSnapshot: false
-    }))
+    }));
+  }
 }));

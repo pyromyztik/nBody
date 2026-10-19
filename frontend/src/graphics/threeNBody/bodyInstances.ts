@@ -28,7 +28,8 @@ export type BodyInstancesRenderer = {
     speedMin: number,
     speedSpan: number,
     cameraPos: Vector3,
-    billboardDistanceSq: number
+    billboardDistanceSq: number,
+    colorsDirty?: boolean
   ) => void;
   dispose: () => void;
 };
@@ -93,6 +94,7 @@ export function createBodyInstancesRenderer(
   let bodyRadius = 0.01;
   let matrixData = new Float32Array(0);
   let colorData = new Float32Array(0);
+  let baseColors = new Float32Array(0);
   let pointPositions = new Float32Array(0);
   let pointColors = new Float32Array(0);
   let pointIndices: number[] = [];
@@ -101,6 +103,9 @@ export function createBodyInstancesRenderer(
     bodyRadius = value;
   };
 
+  let cachedSphereCount = 0;
+  let cachedFarBodyCount = 0;
+
   const update = (
     positions: Float32Array,
     speeds: Float32Array,
@@ -108,8 +113,10 @@ export function createBodyInstancesRenderer(
     speedMin: number,
     speedSpan: number,
     cameraPos: Vector3,
-    billboardDistanceSq: number
+    billboardDistanceSq: number,
+    colorsDirty = true
   ) => {
+    const bufferSizeChanged = pointPositions.length !== count * 3;
     if (matrixData.length !== count * 16) {
       matrixData = new Float32Array(count * 16);
       mesh.thinInstanceSetBuffer('matrix', matrixData, 16, false);
@@ -121,7 +128,11 @@ export function createBodyInstancesRenderer(
       mesh.thinInstanceSetBuffer('color', colorData, 4, false);
     }
 
-    if (pointPositions.length !== count * 3) {
+    if (baseColors.length !== count * 3) {
+      baseColors = new Float32Array(count * 3);
+    }
+
+    if (bufferSizeChanged) {
       pointPositions = new Float32Array(count * 3);
       pointColors = new Float32Array(count * 4);
       pointIndices = new Array<number>(count);
@@ -131,9 +142,36 @@ export function createBodyInstancesRenderer(
       pointMesh.setIndices(pointIndices);
     }
 
+    const sphereColorScale = useStableOrbitTheme ? stableSphereColorIntensity : 1;
+    const pointColorScale = useStableOrbitTheme ? stablePointColorIntensity : 1;
+    const shouldUpdateColors = colorsDirty || bufferSizeChanged;
+
+    if (shouldUpdateColors) {
+      for (let i = 0; i < count; i++) {
+        if (useStableOrbitTheme) {
+          randomIndexedColor(i, tmpColor, stableColorSeed);
+        } else {
+          const t = clamp01((speeds[i] - speedMin) / speedSpan);
+          turboColor(t, tmpColor);
+        }
+        const b = i * 3;
+        baseColors[b] = tmpColor.r;
+        baseColors[b + 1] = tmpColor.g;
+        baseColors[b + 2] = tmpColor.b;
+
+        const c = i * 4;
+        pointColors[c] = tmpColor.r * pointColorScale;
+        pointColors[c + 1] = tmpColor.g * pointColorScale;
+        pointColors[c + 2] = tmpColor.b * pointColorScale;
+      }
+    }
+
     tmpScale.set(bodyRadius, bodyRadius, bodyRadius);
     let sphereCount = 0;
     let farBodyCount = 0;
+
+    // Bulk copy positions directly into vertex buffer array
+    pointPositions.set(positions.subarray(0, count * 3));
 
     for (let i = 0; i < count; i++) {
       const idx = i * 3;
@@ -145,27 +183,8 @@ export function createBodyInstancesRenderer(
       const dz = pz - cameraPos.z;
       const distanceSq = dx * dx + dy * dy + dz * dz;
 
-      if (useStableOrbitTheme) {
-        randomIndexedColor(i, tmpColor, stableColorSeed);
-      } else {
-        const t = clamp01((speeds[i] - speedMin) / speedSpan);
-        turboColor(t, tmpColor);
-      }
-
-      const c = i * 4;
-      const sphereColorScale = useStableOrbitTheme ? stableSphereColorIntensity : 1;
-      const pointColorScale = useStableOrbitTheme ? stablePointColorIntensity : 1;
-
-      const p = i * 3;
-      pointPositions[p] = px;
-      pointPositions[p + 1] = py;
-      pointPositions[p + 2] = pz;
-
-      pointColors[c] = tmpColor.r * pointColorScale;
-      pointColors[c + 1] = tmpColor.g * pointColorScale;
-      pointColors[c + 2] = tmpColor.b * pointColorScale;
-
       const shouldUsePointSprite = distanceSq > billboardDistanceSq;
+      const c = i * 4;
 
       if (shouldUsePointSprite) {
         pointColors[c + 3] = useStableOrbitTheme ? 0.96 : 0.5;
@@ -177,22 +196,31 @@ export function createBodyInstancesRenderer(
         tmpMatrix.copyToArray(matrixData, sphereCount * 16);
 
         const sphereColor = sphereCount * 4;
-        colorData[sphereColor] = tmpColor.r * sphereColorScale;
-        colorData[sphereColor + 1] = tmpColor.g * sphereColorScale;
-        colorData[sphereColor + 2] = tmpColor.b * sphereColorScale;
+        const b = i * 3;
+        colorData[sphereColor] = baseColors[b] * sphereColorScale;
+        colorData[sphereColor + 1] = baseColors[b + 1] * sphereColorScale;
+        colorData[sphereColor + 2] = baseColors[b + 2] * sphereColorScale;
         colorData[sphereColor + 3] = 1;
         sphereCount += 1;
       }
     }
 
     mesh.thinInstanceCount = sphereCount;
-    mesh.thinInstanceBufferUpdated('matrix');
-    mesh.thinInstanceBufferUpdated('color');
+    if (sphereCount > 0 || cachedSphereCount > 0) {
+      mesh.thinInstanceBufferUpdated('matrix');
+      mesh.thinInstanceBufferUpdated('color');
+    }
 
     pointMesh.updateVerticesData(VertexBuffer.PositionKind, pointPositions, false, false);
-    pointMesh.updateVerticesData(VertexBuffer.ColorKind, pointColors, false, false);
+    if (shouldUpdateColors) {
+      pointMesh.updateVerticesData(VertexBuffer.ColorKind, pointColors, false, false);
+    }
+
     pointMesh.setEnabled(farBodyCount > 0);
     mesh.setEnabled(sphereCount > 0);
+
+    cachedSphereCount = sphereCount;
+    cachedFarBodyCount = farBodyCount;
   };
 
   const dispose = () => {

@@ -1,11 +1,18 @@
 namespace nbody;
 
-// One sampled simulation frame.
+// One sampled simulation frame with quantized positions.
 table FrameSample {
   frame:uint32;
   body_count:uint32;
-  // Interleaved as [px, py, pz, vx, vy, vz] for each body.
-  bodies:[float];
+  sim_dt:float;
+  bbox_min_x:float;
+  bbox_min_y:float;
+  bbox_min_z:float;
+  bbox_extent_x:float;
+  bbox_extent_y:float;
+  bbox_extent_z:float;
+  // Interleaved quantized positions [qx, qy, qz] for each body (0..65535).
+  bodies:[uint16];
 }
 
 root_type FrameSample;

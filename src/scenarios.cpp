@@ -35,11 +35,13 @@ namespace {
     constexpr size_t MAX_SCENARIO_BODIES = 1000000;
     constexpr double MIN_ACCRETION_DISK_RADIUS = 0.0;
 
-    constexpr const char* GALAXY_SNAPSHOT_PATH = "scenarios/galaxy.bin";
-    constexpr const char* GALAXY_COLLISION_SNAPSHOT_PATH = "scenarios/galaxyCollision.bin";
+    constexpr const char* GALAXY_SNAPSHOT_PATH = "scenarios/galaxy_30k.bin";
+    constexpr const char* GALAXY_10K_SNAPSHOT_PATH = "scenarios/galaxy_10k.bin";
+    constexpr const char* GALAXY_COLLISION_SNAPSHOT_PATH = "scenarios/galaxy_collision_30k.bin";
+    constexpr const char* GALAXY_COLLISION_15K_SNAPSHOT_PATH = "scenarios/galaxy_collision_15k.bin";
     constexpr const char* GENERATED_SCENARIO_PATH = "scenarios/scenario.bin";
-    constexpr const char* STABLE_ORBITS_SCRIPT = "scenarios/generateStableOrbits.py";
-    constexpr const char* ACCRETION_DISK_SCRIPT = "scenarios/generateAccretionDisk.py";
+    constexpr const char* STABLE_ORBITS_SCRIPT = "scenarios/generator/generateStableOrbits.py";
+    constexpr const char* ACCRETION_DISK_SCRIPT = "scenarios/generator/generateAccretionDisk.py";
 
     const unordered_set<string> STABLE_ORBIT_FAMILIES = {
         "auto",
@@ -211,13 +213,17 @@ namespace {
     optional<ScenarioKind> parseScenarioChoice(const string& inputChoice) {
         const string choice = toLower(trim(inputChoice));
 
-        if (choice == "1" || choice == "galaxy")
+        if (choice == "1" || choice == "galaxy-10k" || choice == "galaxy10k")
+            return ScenarioKind::Galaxy10k;
+        if (choice == "2" || choice == "galaxy" || choice == "galaxy-30k" || choice == "galaxy30k")
             return ScenarioKind::Galaxy;
-        if (choice == "2" || choice == "galaxy-collision" || choice == "galaxycollision")
+        if (choice == "3" || choice == "galaxy-collision-15k" || choice == "galaxycollision15k")
+            return ScenarioKind::GalaxyCollision15k;
+        if (choice == "4" || choice == "galaxy-collision" || choice == "galaxycollision" || choice == "galaxy-collision-30k" || choice == "galaxycollision30k")
             return ScenarioKind::GalaxyCollision;
-        if (choice == "3" || choice == "stable-orbits" || choice == "stableorbits")
+        if (choice == "5" || choice == "stable-orbits" || choice == "stableorbits")
             return ScenarioKind::StableOrbits;
-        if (choice == "4" || choice == "accretion-disk" || choice == "accretiondisk")
+        if (choice == "6" || choice == "accretion-disk" || choice == "accretiondisk")
             return ScenarioKind::AccretionDisk;
         return nullopt;
     }
@@ -417,10 +423,12 @@ bool promptScenarioSelection(ScenarioSelection& selection,
                              ostream& output) {
     while (true) {
         output << "Select a scenario to load:\n"
-               << "  1) galaxy\n"
-               << "  2) galaxy-collision\n"
-               << "  3) stable-orbits\n"
-               << "  4) accretion-disk\n"
+               << "  1) galaxy-10k\n"
+               << "  2) galaxy (30k)\n"
+               << "  3) galaxy-collision-15k\n"
+               << "  4) galaxy-collision (30k)\n"
+               << "  5) stable-orbits\n"
+               << "  6) accretion-disk\n"
                << "Enter selection: ";
 
         string rawChoice;
@@ -624,9 +632,17 @@ bool loadSelectedScenario(ParticleSystem& system,
             output << "Loading prebuilt scenario: " << GALAXY_SNAPSHOT_PATH << "\n";
             return loadAgamaSnapshot(system, GALAXY_SNAPSHOT_PATH);
 
+        case ScenarioKind::Galaxy10k:
+            output << "Loading prebuilt scenario: " << GALAXY_10K_SNAPSHOT_PATH << "\n";
+            return loadAgamaSnapshot(system, GALAXY_10K_SNAPSHOT_PATH);
+
         case ScenarioKind::GalaxyCollision:
             output << "Loading prebuilt scenario: " << GALAXY_COLLISION_SNAPSHOT_PATH << "\n";
             return loadAgamaSnapshot(system, GALAXY_COLLISION_SNAPSHOT_PATH);
+
+        case ScenarioKind::GalaxyCollision15k:
+            output << "Loading prebuilt scenario: " << GALAXY_COLLISION_15K_SNAPSHOT_PATH << "\n";
+            return loadAgamaSnapshot(system, GALAXY_COLLISION_15K_SNAPSHOT_PATH);
 
         case ScenarioKind::StableOrbits: {
             const vector<string> args = {

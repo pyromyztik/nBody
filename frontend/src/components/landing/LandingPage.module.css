@@ -546,6 +546,27 @@
   width: 100%;
 }
 
+.computeExhaustedNotice {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fca5a5;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.computeExhaustedNotice svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  stroke: #ef4444;
+}
+
 .simulateButton {
   flex: 1;
   min-width: 0;
@@ -596,9 +617,99 @@
   transform: translateY(-1px);
 }
 
-.logoutSquareButton svg {
-  width: 20px;
-  height: 20px;
+.authCard {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: cardReveal 220ms ease-out;
+}
+
+.authTitleWrapper {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.authCrownIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.authCrownIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.authTitle {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: -0.01em;
+  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+}
+
+.authSubtitle {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #94a3b8;
+}
+
+.authDescription {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.authFieldsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.authLockoutBanner {
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.authErrorBanner {
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.authWarningBanner {
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fcd34d;
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 @keyframes cardReveal {

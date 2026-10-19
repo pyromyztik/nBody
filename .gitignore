@@ -20,6 +20,8 @@ Thumbs.db
 *.out
 *.pyc
 *.bin
+!scenarios/*.bin
+scenarios/scenario.bin
 
 ### # Libraries & Static Archives
 
@@ -64,6 +66,7 @@ obj/
 *.csv
 *.old
 *.fb
+*.dat
 
 ### # IDE & Tooling Configuration
 # Local environment settings that shouldn't be shared with the team
