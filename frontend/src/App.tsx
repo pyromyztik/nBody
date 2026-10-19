@@ -420,15 +420,39 @@ export default function App() {
   }));
 
   const [isWaking, setIsWaking] = useState(false);
-  const [wakeSecondsRemaining, setWakeSecondsRemaining] = useState(25);
   const [wakeStatusMessage, setWakeStatusMessage] = useState<string | null>(null);
+
+  // Fast standby probe on initial mount if wake URL is configured
+  useEffect(() => {
+    const wakeUrl = import.meta.env.VITE_WAKE_URL;
+    if (!wakeUrl || status === 'connected') return;
+
+    let active = true;
+    fetch(wakeUrl, { method: 'GET', mode: 'cors' })
+      .then((res) => res.json())
+      .then((data: { status?: string; state?: string }) => {
+        if (!active) return;
+        if (data.status === 'stopped' || data.state === 'stopped') {
+          // Dedicated instance is stopped: immediately update status so standby screen renders without delay
+          if (useFrameStore.getState().status !== 'connected') {
+            useFrameStore.getState().setStatus('disconnected');
+          }
+        }
+      })
+      .catch(() => {
+        // Ignore fetch errors, WebSocket 3s timeout handles fallback
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const wakeServer = useCallback(async () => {
     const wakeUrl = import.meta.env.VITE_WAKE_URL;
     if (!wakeUrl) return;
     setIsWaking(true);
-    setWakeSecondsRemaining(25);
-    setWakeStatusMessage('Requesting cluster boot...');
+    setWakeStatusMessage('Requesting node boot...');
 
     try {
       await fetch(wakeUrl, { method: 'POST', mode: 'cors' });
@@ -442,26 +466,21 @@ export default function App() {
   useEffect(() => {
     if (status === 'connected') {
       setIsWaking(false);
-      setWakeSecondsRemaining(25);
       setWakeStatusMessage(null);
     }
   }, [status]);
 
   useEffect(() => {
     if (!isWaking) return;
+    // Automatically poll and reconnect every 3s while booting until connected
     const interval = window.setInterval(() => {
-      setWakeSecondsRemaining((prev) => {
-        if (prev <= 1) {
-          setIsWaking(false);
-          socketControls?.reconnect();
-          return 25;
-        }
-        if (prev <= 16 && prev % 3 === 0) {
-          socketControls?.reconnect();
-        }
-        return prev - 1;
-      });
-    }, 1000);
+      if (useFrameStore.getState().status === 'connected') {
+        setIsWaking(false);
+        setWakeStatusMessage(null);
+        return;
+      }
+      socketControls?.reconnect();
+    }, 3000);
     return () => window.clearInterval(interval);
   }, [isWaking, socketControls]);
 
@@ -622,7 +641,7 @@ export default function App() {
     );
   }
 
-  if (status === 'disconnected' || status === 'error') {
+  if (status === 'disconnected' || status === 'error' || isWaking) {
     const hasWakeUrl = Boolean(import.meta.env.VITE_WAKE_URL);
 
     return (
@@ -659,7 +678,7 @@ export default function App() {
             )}
           </div>
           <h1 className={appStyles.serverFullTitle} style={hasWakeUrl ? { color: '#38bdf8' } : undefined}>
-            {isWaking ? 'Booting Simulation Node' : (hasWakeUrl ? 'Simulation Node Standby' : 'Backend Disconnected')}
+            {isWaking ? 'Booting Simulation Node' : (hasWakeUrl ? 'Simulation Node in Standby' : 'Backend Disconnected')}
           </h1>
           <p className={appStyles.serverFullDescription}>
             {isWaking
@@ -670,29 +689,20 @@ export default function App() {
           </p>
           <p className={appStyles.serverFullSubtext}>
             {isWaking
-              ? `Estimated node readiness in ~${wakeSecondsRemaining}s. Connecting automatically...`
+              ? 'Boot signal sent. Connecting automatically once online...'
               : (hasWakeUrl
-                ? 'Click below to spin up the dedicated compute node (~20 seconds).'
+                ? 'Click below to spin up the dedicated compute node.'
                 : <>Please verify that the backend server is running (<code style={{ color: '#93c5fd' }}>./build/nbody_ws.exe</code>) to use the simulation.</>)}
           </p>
           {hasWakeUrl ? (
-            <>
-              <button
-                className={appStyles.serverFullWakeBtn}
-                type="button"
-                disabled={isWaking}
-                onClick={wakeServer}
-              >
-                {isWaking ? `Waking Node (${wakeSecondsRemaining}s)...` : '⚡ Wake Simulation Node (~20s)'}
-              </button>
-              <button
-                className={appStyles.serverFullSecondaryBtn}
-                type="button"
-                onClick={() => socketControls?.reconnect()}
-              >
-                Manual Reconnect
-              </button>
-            </>
+            <button
+              className={appStyles.serverFullWakeBtn}
+              type="button"
+              disabled={isWaking}
+              onClick={wakeServer}
+            >
+              {isWaking ? 'Waking Node...' : 'Wake Simulation Node'}
+            </button>
           ) : (
             <button
               className={appStyles.serverFullRetryBtn}
@@ -709,7 +719,7 @@ export default function App() {
     );
   }
 
-  if (status === 'connecting') {
+  if (status === 'connecting' && !isWaking) {
     return (
       <div className={appStyles.serverFullShell} role="status" aria-live="polite">
         <div className={appStyles.serverFullCard}>

@@ -161,6 +161,15 @@ export function startFrameWebSocket(
     }, 15000);
   };
 
+  let connectTimeoutTimer: number | null = null;
+
+  const cleanupConnectTimeout = () => {
+    if (connectTimeoutTimer !== null) {
+      window.clearTimeout(connectTimeoutTimer);
+      connectTimeoutTimer = null;
+    }
+  };
+
   const cleanupRetry = () => {
     if (retryTimer !== null) {
       window.clearTimeout(retryTimer);
@@ -171,6 +180,7 @@ export function startFrameWebSocket(
   const connect = (isExplicit = false) => {
     if (stop) return;
     cleanupRetry();
+    cleanupConnectTimeout();
     resetCarry();
     if (isExplicit) {
       onStatus?.('connecting');
@@ -189,7 +199,21 @@ export function startFrameWebSocket(
     ws = nextSocket;
     ws.binaryType = 'arraybuffer';
 
+    // Prevent hanging in CONNECTING state for 30-50s when backend instance is stopped (dropping SYN)
+    connectTimeoutTimer = window.setTimeout(() => {
+      if (ws && ws.readyState === WebSocket.CONNECTING) {
+        console.warn('[ws] Connection timed out (backend host offline or in standby)');
+        try {
+          ws.close();
+        } catch {
+          // ignore
+        }
+        onStatus?.('disconnected');
+      }
+    }, 3000);
+
     ws.onopen = () => {
+      cleanupConnectTimeout();
       onStatus?.('connected');
       startHeartbeat();
 
@@ -202,11 +226,13 @@ export function startFrameWebSocket(
     };
 
     ws.onerror = (err) => {
+      cleanupConnectTimeout();
       console.error('WebSocket error', err);
       onStatus?.('error');
     };
 
     ws.onclose = (ev: CloseEvent) => {
+      cleanupConnectTimeout();
       stopHeartbeat();
       resetCarry();
 
@@ -225,7 +251,7 @@ export function startFrameWebSocket(
       }
 
       onStatus?.('disconnected');
-      if (!stop) retryTimer = window.setTimeout(() => connect(false), 1000);
+      if (!stop) retryTimer = window.setTimeout(() => connect(false), 2000);
     };
 
     ws.onmessage = async (ev: MessageEvent<ArrayBuffer | Blob | string>) => {
@@ -314,6 +340,7 @@ export function startFrameWebSocket(
       stop = true;
       stopHeartbeat();
       cleanupRetry();
+      cleanupConnectTimeout();
       window.removeEventListener('beforeunload', handlePageUnload);
       window.removeEventListener('pagehide', handlePageUnload);
       try {
