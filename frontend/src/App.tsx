@@ -406,6 +406,18 @@ export default function App() {
   const [isSpectating, setIsSpectating] = useState(false);
   const [simulationSessionToken, setSimulationSessionToken] = useState(0);
 
+  const navigateToRoute = useCallback((nextRoute: AppRoute, replace = false) => {
+    const nextPath = pathForRoute(nextRoute);
+    if (window.location.pathname !== nextPath) {
+      if (replace) {
+        window.history.replaceState({}, '', nextPath);
+      } else {
+        window.history.pushState({}, '', nextPath);
+      }
+    }
+    setRoute(nextRoute);
+  }, []);
+
   const [socketControls, setSocketControls] = useState<SocketControls | null>(null);
 
   const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted, isSimRunning } = useFrameStore(
@@ -525,18 +537,6 @@ export default function App() {
       sessionStorage.removeItem('nbody_master_name');
     }
   }, [lastAuthError]);
-
-  const navigateToRoute = useCallback((nextRoute: AppRoute, replace = false) => {
-    const nextPath = pathForRoute(nextRoute);
-    if (window.location.pathname !== nextPath) {
-      if (replace) {
-        window.history.replaceState({}, '', nextPath);
-      } else {
-        window.history.pushState({}, '', nextPath);
-      }
-    }
-    setRoute(nextRoute);
-  }, []);
 
   useEffect(() => {
     const handlePopState = () => {
