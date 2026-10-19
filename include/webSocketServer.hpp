@@ -14,11 +14,22 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "computeQuotaManager.hpp"
 
 namespace nbody_auth {
+
+inline void touchActivityFile() {
+#if !defined(_WIN32)
+    FILE* f = std::fopen("/tmp/nbody_sim_active", "w");
+    if (f) {
+        std::fprintf(f, "%ld\n", static_cast<long>(std::time(nullptr)));
+        std::fclose(f);
+    }
+#endif
+}
 
 inline std::string urlDecode(const std::string& in) {
     std::string out;
@@ -66,8 +77,8 @@ inline std::string buildAuthStateMessage(
     bool isSimRunning,
     const std::string& scenarioTitle = "",
     double usedCompute = 0.0,
-    double maxCompute = 5400.0,
-    double computeRemaining = 5400.0,
+    double maxCompute = 3600.0,
+    double computeRemaining = 3600.0,
     bool computeExhausted = false,
     bool loginLocked = false,
     int remainingAttempts = 5,
@@ -156,8 +167,8 @@ public:
                     attempts = quotaManager_->getRemainingLoginAttempts(ip);
                 } else {
                     used = 0.0;
-                    maxC = 5400.0;
-                    rem = 5400.0;
+                    maxC = 3600.0;
+                    rem = 3600.0;
                     exh = false;
                     locked = false;
                     attempts = 5;
@@ -178,10 +189,11 @@ public:
                 bool simRunning = isSimRunning_ ? isSimRunning_() : false;
                 std::string title = getScenarioTitle();
                 std::string ip(ws->getRemoteAddressAsText());
-                double used = 0, maxC = 5400, rem = 5400; bool exh = false, locked = false; int attempts = 5;
+                double used = 0, maxC = 3600, rem = 3600; bool exh = false, locked = false; int attempts = 5;
                 getQuotaInfo(used, maxC, rem, exh, locked, attempts, ip);
+                int spectatorCount = static_cast<int>(activeSpectators_.size());
                 std::string msg = nbody_auth::buildAuthStateMessage(
-                    hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title,
+                    hasMaster, masterName_, spectatorCount, MAX_SPECTATORS, simRunning, title,
                     used, maxC, rem, exh, locked, attempts, false);
                 ws->send(msg, uWS::OpCode::TEXT);
             };
@@ -199,10 +211,11 @@ public:
                 bool hasMaster = (currentMasterWs_ != nullptr);
                 bool simRunning = isSimRunning_ ? isSimRunning_() : false;
                 std::string title = getScenarioTitle();
-                double used = 0, maxC = 5400, rem = 5400; bool exh = false, locked = false; int attempts = 5;
+                double used = 0, maxC = 3600, rem = 3600; bool exh = false, locked = false; int attempts = 5;
                 getQuotaInfo(used, maxC, rem, exh, locked, attempts);
+                int spectatorCount = static_cast<int>(activeSpectators_.size());
                 std::string msg = nbody_auth::buildAuthStateMessage(
-                    hasMaster, masterName_, spectatorCount_, MAX_SPECTATORS, simRunning, title,
+                    hasMaster, masterName_, spectatorCount, MAX_SPECTATORS, simRunning, title,
                     used, maxC, rem, exh, locked, attempts, false);
                 broadcastText(msg);
             };
@@ -212,7 +225,7 @@ public:
             app.template ws<PerSocketData>("/*", {
                 .compression = uWS::DISABLED,
                 .maxPayloadLength = 64 * 1024,
-                .idleTimeout = 120,
+                .idleTimeout = 35,
                 .maxBackpressure = 64 * 1024 * 1024,
                 .open = [this, sendAuthState, broadcastAuthState](auto* ws) {
                     auto* data = ws->getUserData();
@@ -238,7 +251,7 @@ public:
 
                     // Max connections: 1 master + 6 spectators = 7
                     // If master exists and spectator count is already at max, server is full.
-                    if (currentMasterWs_ != nullptr && spectatorCount_ >= MAX_SPECTATORS) {
+                    if (currentMasterWs_ != nullptr && activeSpectators_.size() >= MAX_SPECTATORS) {
                         std::cout << "[auth] Connection rejected: server is full (1 master + "
                                   << MAX_SPECTATORS << " spectators)\n";
                         ws->send("auth:error?reason=" + nbody_auth::urlEncode("Server is full (max 6 spectators)"), uWS::OpCode::TEXT);
@@ -247,11 +260,11 @@ public:
                     }
 
                     // Assign spectator role if slot available
-                    if (spectatorCount_ < MAX_SPECTATORS) {
+                    if (activeSpectators_.size() < MAX_SPECTATORS) {
                         data->isSpectator = true;
-                        spectatorCount_++;
+                        activeSpectators_.insert(ws);
                         std::cout << "[ws] client connected as spectator. Total spectators: "
-                                  << spectatorCount_ << "/" << MAX_SPECTATORS << "\n";
+                                  << activeSpectators_.size() << "/" << MAX_SPECTATORS << "\n";
                     } else {
                         // All spectator slots taken, but master slot is open.
                         // Allow connection as pending so user can enter password to become master.
@@ -341,24 +354,22 @@ public:
                                 oldData->isMaster = false;
                                 oldData->isSpectator = false;
                             }
+                            activeSpectators_.erase(oldMasterWs);
                             oldMasterWs->send("auth:unauthorized?reason=" + nbody_auth::urlEncode("Master session resumed from another connection"), uWS::OpCode::TEXT);
                             oldMasterWs->end(1000, "Master session resumed from another connection");
                             currentMasterWs_ = nullptr;
                         }
 
                         // Successfully promote to Master
-                        if (data->isSpectator) {
-                            data->isSpectator = false;
-                            spectatorCount_--;
-                            if (spectatorCount_ < 0) spectatorCount_ = 0;
-                        }
-
+                        activeSpectators_.erase(ws);
+                        data->isSpectator = false;
                         data->isMaster = true;
                         data->clientName = name;
                         currentMasterWs_ = ws;
                         masterName_ = name;
 
                         std::cout << "[auth] Client authenticated as Master: " << masterName_ << " (" << clientIp << ")\n";
+                        nbody_auth::touchActivityFile();
                         ws->send("auth:ok?role=master&masterName=" + nbody_auth::urlEncode(masterName_), uWS::OpCode::TEXT);
                         broadcastAuthState();
                         return;
@@ -371,9 +382,9 @@ public:
                             currentMasterWs_ = nullptr;
                             masterName_ = "";
 
-                            if (spectatorCount_ < MAX_SPECTATORS) {
+                            if (activeSpectators_.size() < MAX_SPECTATORS) {
                                 data->isSpectator = true;
-                                spectatorCount_++;
+                                activeSpectators_.insert(ws);
                             }
                             ws->send("auth:ok?role=spectator", uWS::OpCode::TEXT);
                             broadcastAuthState();
@@ -402,12 +413,17 @@ public:
                         }
                     }
 
+                    // Real master control input: mark activity so auto-shutdown timer is extended
+                    nbody_auth::touchActivityFile();
+
                     if (onTextMessage_) {
                         onTextMessage_(message);
                     }
                 },
                 .close = [this, broadcastAuthState](auto* ws, int /*code*/, std::string_view /*message*/) {
                     auto* data = ws->getUserData();
+                    activeSpectators_.erase(ws);
+
                     if (locallyHosted_) {
                         if (currentMasterWs_ == ws) {
                             currentMasterWs_ = nullptr;
@@ -423,11 +439,9 @@ public:
                             onMasterDisconnected_();
                         }
                         broadcastAuthState();
-                    } else if (data->isSpectator) {
-                        spectatorCount_--;
-                        if (spectatorCount_ < 0) spectatorCount_ = 0;
+                    } else {
                         std::cout << "[ws] Spectator disconnected. Total spectators: "
-                                  << spectatorCount_ << "/" << MAX_SPECTATORS << "\n";
+                                  << activeSpectators_.size() << "/" << MAX_SPECTATORS << "\n";
                         broadcastAuthState();
                     }
                 }
@@ -530,7 +544,7 @@ private:
     std::string masterPassword_;
     void* currentMasterWs_ = nullptr;
     std::string masterName_;
-    int spectatorCount_ = 0;
+    std::unordered_set<void*> activeSpectators_;
 
     std::mutex frameMutex_;
     std::shared_ptr<std::vector<uint8_t>> latestFrame_;

@@ -254,6 +254,13 @@ export function startFrameWebSocket(
             if (authResp.reason?.toLowerCase().includes('server is full')) {
               useFrameStore.getState().setIsServerFull(true);
             }
+            if (authResp.reason?.toLowerCase().includes('master session resumed') ||
+                authResp.reason?.toLowerCase().includes('resumed from another connection')) {
+              // Displaced by another master session: clear saved credentials so this tab doesn't contest master role
+              sessionStorage.removeItem('nbody_master_pwd');
+              sessionStorage.removeItem('nbody_master_name');
+              useFrameStore.getState().setUserRole('spectator');
+            }
             useFrameStore.getState().setLastAuthError(authResp.reason || 'Authentication error');
             console.warn('[auth]', authResp.reason);
           }
@@ -289,12 +296,31 @@ export function startFrameWebSocket(
     }
   };
 
+  const handlePageUnload = () => {
+    try {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close(1000, 'Tab closed');
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  window.addEventListener('beforeunload', handlePageUnload);
+  window.addEventListener('pagehide', handlePageUnload);
+
   return {
     close: () => {
       stop = true;
       stopHeartbeat();
       cleanupRetry();
-      ws?.close();
+      window.removeEventListener('beforeunload', handlePageUnload);
+      window.removeEventListener('pagehide', handlePageUnload);
+      try {
+        ws?.close(1000, 'Client closed');
+      } catch {
+        // ignore
+      }
     },
     sendText,
     loginAsMaster: (password: string, name: string) => {

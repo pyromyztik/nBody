@@ -7,6 +7,10 @@
   justify-content: center;
   padding: clamp(12px, 2.2vw, 24px);
   overflow: hidden;
+  background:
+    radial-gradient(circle at 14% 8%, rgba(29, 110, 145, 0.2), transparent 56%),
+    radial-gradient(circle at 84% 86%, rgba(255, 159, 67, 0.16), transparent 48%),
+    linear-gradient(170deg, #0b0d15 0%, #05060a 58%, #111018 100%);
 }
 
 .landingShell::before,
@@ -18,9 +22,22 @@
 .landingShell::before {
   inset: 0;
   background:
-    radial-gradient(circle at 14% 8%, rgba(29, 110, 145, 0.2), transparent 56%),
-    radial-gradient(circle at 84% 86%, rgba(255, 159, 67, 0.16), transparent 48%),
-    linear-gradient(170deg, #0b0d15 0%, #05060a 58%, #111018 100%);
+    repeating-linear-gradient(
+      5deg,
+      rgba(255, 255, 255, 0.02) 0px,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 64px
+    ),
+    repeating-linear-gradient(
+      95deg,
+      rgba(255, 255, 255, 0.02) 0px,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 64px
+    );
+  -webkit-mask-image: radial-gradient(ellipse at center, transparent 5%, rgba(0, 0, 0, 0.4) 35%, black 65%);
+  mask-image: radial-gradient(ellipse at center, transparent 5%, rgba(0, 0, 0, 0.4) 35%, black 65%);
 }
 
 .landingShell::after {

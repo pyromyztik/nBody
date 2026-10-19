@@ -490,7 +490,7 @@ int main(int argc, char* argv[]) {
     if (locallyHosted) {
         cout << "[mode] Running in locally-hosted mode (--locally-hosted / -lh): login system and daily compute limits are DISABLED.\n";
     } else {
-        cout << "[mode] Running in hosted mode (default): password protection and 1.5h daily compute limit ENABLED.\n";
+        cout << "[mode] Running in hosted mode (default): password protection and 1h daily compute limit ENABLED.\n";
     }
 
     // ------------------INITIALIZE SYSTEM------------------//
@@ -699,7 +699,7 @@ int main(int argc, char* argv[]) {
                 const auto frameEnd = chrono::steady_clock::now();
                 const double frameElapsedSeconds = chrono::duration<double>(frameEnd - frameStart).count();
                 if (quotaManager.addComputeSeconds(frameElapsedSeconds)) {
-                    cout << "[quota] Daily compute limit of 1.5 hours reached! Halting simulation.\n";
+                    cout << "[quota] Daily compute limit of 1 hour reached! Halting simulation.\n";
                     runtimeControls.paused = true;
                     isSimRunning = false;
                     controlBridge.replaceState(runtimeControls);
@@ -715,8 +715,9 @@ int main(int argc, char* argv[]) {
                      << " | Bodies: " << system.size()
                      << " | Compute Time: " << frameTime.count() << " ms\n";
 
-            // Sync compute gauge and auth state every 60 frames (~0.6-1.0s)
+            // Sync compute gauge, auth state, and touch activity heartbeat every 60 frames (~0.6-1.0s)
             if (currentFrame % 60 == 0) {
+                nbody_auth::touchActivityFile();
                 broadcaster.notifySimStateChanged();
             }
             currentFrame++;

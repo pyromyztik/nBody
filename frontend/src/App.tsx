@@ -379,7 +379,7 @@ function SimulationPage({
             </div>
             <h2 className={appStyles.quotaModalTitle}>Daily Compute Limit Reached</h2>
             <p className={appStyles.quotaModalDesc}>
-              The server&apos;s daily compute quota (1.5 cumulative hours) has been exhausted for today.
+              The server&apos;s daily compute quota (1 cumulative hour) has been exhausted for today.
             </p>
             <p className={appStyles.quotaModalSubtext}>
               Active physics simulation has been paused. Please return tomorrow to continue using the simulator.
@@ -471,20 +471,6 @@ export default function App() {
     const { pushFrame, setStatus, setSimControlSnapshot } = useFrameStore.getState();
     const controls = startFrameWebSocket(WS_URL, pushFrame, setStatus, setSimControlSnapshot);
     setSocketControls(controls);
-
-    // Auto-reconnect as master if credentials saved in session
-    const savedPwd = sessionStorage.getItem('nbody_master_pwd');
-    const savedName = sessionStorage.getItem('nbody_master_name') || 'Master';
-    if (savedPwd) {
-      const timer = window.setTimeout(() => {
-        controls.loginAsMaster(savedPwd, savedName);
-      }, 120);
-      return () => {
-        window.clearTimeout(timer);
-        setSocketControls(null);
-        controls.close();
-      };
-    }
 
     return () => {
       setSocketControls(null);

@@ -62,7 +62,7 @@ Run in public/hosted mode:
 
 - **Master Authentication**: One operator logs in as Master to configure and run simulations. Includes brute-force protection (maximum 5 attempts per day).
 - **Spectator Mode**: Up to 6 spectators can join concurrently to watch simulations live, inspect telemetry, and switch cameras without disrupting the simulation.
-- **Daily Compute Quota**: Tracks cumulative simulation run time (1.5 hours per day shared across users) with state persistence and live remaining compute ring indicator in the HUD.
+- **Daily Compute Quota**: Tracks cumulative simulation run time (1 hour per day shared across users) with state persistence and live remaining compute ring indicator in the HUD.
 
 #### 2. Locally-Hosted Mode (Recommended for Local Development)
 Run without compute quotas, password authentication, or spectator caps:

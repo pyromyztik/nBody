@@ -62,13 +62,13 @@ export function SimControlDock({
   const effectiveDisabled = controlsDisabled || (!isLocallyHosted && (!isMaster || isComputeExhausted));
   const lockTitle = !isLocallyHosted
     ? (isComputeExhausted
-        ? 'Daily compute limit reached (1.5h). Please return tomorrow.'
+        ? 'Daily compute limit reached (1h). Please return tomorrow.'
         : (!isMaster ? `Controlled by Master (${masterName || 'Master'})` : undefined))
     : undefined;
   const totalUsers = (hasMaster ? 1 : 0) + spectatorCount;
 
-  const remainingSeconds = Math.max(0, computeRemainingSeconds ?? 5400);
-  const totalMaxSeconds = maxComputeSeconds > 0 ? maxComputeSeconds : 5400;
+  const remainingSeconds = Math.max(0, computeRemainingSeconds ?? 3600);
+  const totalMaxSeconds = maxComputeSeconds > 0 ? maxComputeSeconds : 3600;
   const remainingFraction = Math.min(1, Math.max(0, remainingSeconds / totalMaxSeconds));
 
   const hoursRemaining = Math.floor(remainingSeconds / 3600);
@@ -275,7 +275,7 @@ export function SimControlDock({
             </div>
             <div
               className={`${styles.simControlComputeBadge} ${isComputeExhausted ? styles.isComputeExhausted : ''}`.trim()}
-              title={isComputeExhausted ? 'Daily compute limit reached. Please return tomorrow.' : `Daily compute remaining: ${formattedFullRemaining} (1.5h limit)`}
+              title={isComputeExhausted ? 'Daily compute limit reached. Please return tomorrow.' : `Daily compute remaining: ${formattedFullRemaining} (1h limit)`}
               aria-label={`Daily compute remaining: ${formattedFullRemaining}`}
             >
               <svg className={styles.computeCircleSvg} viewBox="0 0 20 20" aria-hidden="true">
@@ -303,8 +303,8 @@ export function SimControlDock({
               <span className={styles.simControlComputeText}>{formattedCompactRemaining}</span>
               <div className={styles.simControlUserTooltip} role="tooltip">
                 {isComputeExhausted
-                  ? 'Daily compute limit reached (1.5h). Please return tomorrow.'
-                  : `Daily Compute: ${formattedFullRemaining} remaining of 1.5h today`}
+                  ? 'Daily compute limit reached (1h). Please return tomorrow.'
+                  : `Daily Compute: ${formattedFullRemaining} remaining of 1h today`}
               </div>
             </div>
           </>

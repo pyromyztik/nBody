@@ -820,7 +820,7 @@ export function LandingPage({
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
                   <span>
-                    <strong>Daily Compute Limit Reached (1.5h).</strong> Today&apos;s simulation quota has been exhausted. Please return tomorrow to continue using the simulator.
+                    <strong>Daily Compute Limit Reached (1h).</strong> Today&apos;s simulation quota has been exhausted. Please return tomorrow to continue using the simulator.
                   </span>
                 </div>
               )}
@@ -1071,7 +1071,7 @@ export function LandingPage({
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
                   <span>
-                    <strong>Daily Compute Limit Reached (1.5h).</strong> Today&apos;s simulation quota has been exhausted. Please return tomorrow to continue using the simulator.
+                    <strong>Daily Compute Limit Reached (1h).</strong> Today&apos;s simulation quota has been exhausted. Please return tomorrow to continue using the simulator.
                   </span>
                 </div>
               )}

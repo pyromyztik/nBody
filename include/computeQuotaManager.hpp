@@ -14,7 +14,7 @@
 
 class ComputeQuotaManager {
 public:
-    static constexpr double DEFAULT_DAILY_COMPUTE_LIMIT_SECONDS = 5400.0; // 1.5 hours
+    static constexpr double DEFAULT_DAILY_COMPUTE_LIMIT_SECONDS = 3600.0; // 1.0 hour
     static constexpr int MAX_PASSWORD_ATTEMPTS = 5;
     static constexpr int MIN_ATTEMPT_INTERVAL_MS = 500;
 

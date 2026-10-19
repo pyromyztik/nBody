@@ -48,7 +48,7 @@ export function parseAuthStateMessage(message: string): AuthState | null {
     return null;
   }
 
-  const maxComputeSeconds = maxComputeVal !== null ? parseFloat(maxComputeVal) : 5400;
+  const maxComputeSeconds = maxComputeVal !== null ? parseFloat(maxComputeVal) : 3600;
   const usedComputeSeconds = usedComputeVal !== null ? parseFloat(usedComputeVal) : 0;
   const computeRemainingSeconds =
     computeRemainingVal !== null
