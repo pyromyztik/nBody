@@ -158,7 +158,7 @@ export function startFrameWebSocket(
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send('ping');
       }
-    }, 15000);
+    }, 5000);
   };
 
   let connectTimeoutTimer: number | null = null;
@@ -199,7 +199,7 @@ export function startFrameWebSocket(
     ws = nextSocket;
     ws.binaryType = 'arraybuffer';
 
-    // Prevent hanging in CONNECTING state for 30-50s when backend instance is stopped (dropping SYN)
+    // Prevent hanging in CONNECTING state indefinitely when backend host is offline
     connectTimeoutTimer = window.setTimeout(() => {
       if (ws && ws.readyState === WebSocket.CONNECTING) {
         console.warn('[ws] Connection timed out (backend host offline or in standby)');
@@ -210,7 +210,7 @@ export function startFrameWebSocket(
         }
         onStatus?.('disconnected');
       }
-    }, 3000);
+    }, 8000);
 
     ws.onopen = () => {
       cleanupConnectTimeout();
@@ -251,7 +251,7 @@ export function startFrameWebSocket(
       }
 
       onStatus?.('disconnected');
-      if (!stop) retryTimer = window.setTimeout(() => connect(false), 2000);
+      if (!stop) retryTimer = window.setTimeout(() => connect(false), 1000);
     };
 
     ws.onmessage = async (ev: MessageEvent<ArrayBuffer | Blob | string>) => {

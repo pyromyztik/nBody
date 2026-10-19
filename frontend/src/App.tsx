@@ -127,7 +127,7 @@ function SimulationPage({
     simDt,
     hasSimControlSnapshot,
     bodyCount,
-    positions,
+    hasFirstFrame,
     userRole,
     hasMaster,
     masterName,
@@ -142,7 +142,7 @@ function SimulationPage({
       simDt: state.simDt,
       hasSimControlSnapshot: state.hasSimControlSnapshot,
       bodyCount: state.bodyCount,
-      positions: state.positions,
+      hasFirstFrame: state.positions !== null && state.bodyCount > 0,
       userRole: state.userRole,
       hasMaster: state.hasMaster,
       masterName: state.masterName,
@@ -158,7 +158,6 @@ function SimulationPage({
   const backNavigationPendingRef = useRef(false);
   const scenarioStartSentRef = useRef(false);
   const [scenarioStartDispatched, setScenarioStartDispatched] = useState(false);
-  const hasFirstFrame = positions !== null && bodyCount > 0;
   const isMaster = userRole === 'master' || isLocallyHosted;
 
   // Frames prove the backend has loaded a runnable simulation even if the control-state
@@ -409,15 +408,18 @@ export default function App() {
 
   const [socketControls, setSocketControls] = useState<SocketControls | null>(null);
 
-  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted } = useFrameStore((state) => ({
-    status: state.status,
-    userRole: state.userRole,
-    hasMaster: state.hasMaster,
-    lastAuthError: state.lastAuthError,
-    hasReceivedAuthState: state.hasReceivedAuthState,
-    isServerFull: state.isServerFull,
-    isLocallyHosted: state.isLocallyHosted
-  }));
+  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted } = useFrameStore(
+    (state) => ({
+      status: state.status,
+      userRole: state.userRole,
+      hasMaster: state.hasMaster,
+      lastAuthError: state.lastAuthError,
+      hasReceivedAuthState: state.hasReceivedAuthState,
+      isServerFull: state.isServerFull,
+      isLocallyHosted: state.isLocallyHosted
+    }),
+    shallow
+  );
 
   const [isWaking, setIsWaking] = useState(false);
   const [wakeStatusMessage, setWakeStatusMessage] = useState<string | null>(null);
@@ -641,7 +643,7 @@ export default function App() {
     );
   }
 
-  if (status === 'disconnected' || status === 'error' || isWaking) {
+  if (isWaking || ((status === 'disconnected' || status === 'error') && route === 'landing')) {
     const hasWakeUrl = Boolean(import.meta.env.VITE_WAKE_URL);
 
     return (
@@ -719,7 +721,7 @@ export default function App() {
     );
   }
 
-  if (status === 'connecting' && !isWaking) {
+  if (status === 'connecting' && !isWaking && route === 'landing') {
     return (
       <div className={appStyles.serverFullShell} role="status" aria-live="polite">
         <div className={appStyles.serverFullCard}>

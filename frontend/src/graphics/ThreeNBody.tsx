@@ -52,7 +52,12 @@ export const ThreeNBody = React.memo(function ThreeNBody({
     const host = hostRef.current;
     if (!host) return;
     const useStableOrbitTheme = renderTheme === 'stable-orbits';
-    const maxRenderPixelRatio = useStableOrbitTheme ? 2 : 1.5;
+    const isMobile =
+      typeof navigator !== 'undefined' &&
+      (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 768px)').matches));
+
+    const maxRenderPixelRatio = isMobile ? 1.0 : (useStableOrbitTheme ? 2 : 1.5);
     const stableColorSeed = Math.floor(Math.random() * 1_000_000_000);
 
     const canvas = document.createElement('canvas');
@@ -89,12 +94,14 @@ export const ThreeNBody = React.memo(function ThreeNBody({
     );
     renderingPipeline.bloomEnabled = true;
     renderingPipeline.bloomThreshold = useStableOrbitTheme ? 0.08 : 0;
-    renderingPipeline.bloomKernel = useStableOrbitTheme ? 60 : 220;
+    renderingPipeline.bloomKernel = isMobile ? (useStableOrbitTheme ? 32 : 48) : (useStableOrbitTheme ? 60 : 220);
     renderingPipeline.bloomWeight = useStableOrbitTheme ? 0.12 : 0.01;
-    renderingPipeline.bloomScale = useStableOrbitTheme ? 0.9 : 0.5;
-    renderingPipeline.samples = useStableOrbitTheme
-      ? Math.max(1, Math.min(8, engine.getCaps().maxMSAASamples || 1))
-      : Math.max(1, Math.min(4, engine.getCaps().maxMSAASamples || 1));
+    renderingPipeline.bloomScale = isMobile ? 0.5 : (useStableOrbitTheme ? 0.9 : 0.5);
+    renderingPipeline.samples = isMobile
+      ? 1
+      : (useStableOrbitTheme
+        ? Math.max(1, Math.min(8, engine.getCaps().maxMSAASamples || 1))
+        : Math.max(1, Math.min(4, engine.getCaps().maxMSAASamples || 1)));
 
     const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), scene);
     hemi.intensity = useStableOrbitTheme ? 0.08 : 0.35;
@@ -110,7 +117,7 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       const glowLayer = renderingPipeline.glowLayer;
       const velocityVectorMesh = vectorOverlays.getMesh('velocity');
       const accelerationVectorMesh = vectorOverlays.getMesh('acceleration');
-      glowLayer.blurKernelSize = 16;
+      glowLayer.blurKernelSize = isMobile ? 8 : 16;
       glowLayer.intensity = 0.72;
       glowLayer.setExcludedByDefault(true);
       glowLayer.addIncludedOnlyMesh(bodyInstances.mesh);
@@ -122,23 +129,25 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       glowLayer.referenceMeshToUseItsOwnMaterial(velocityVectorMesh);
       glowLayer.referenceMeshToUseItsOwnMaterial(accelerationVectorMesh);
 
-      // Second large-radius glow pass to create a broad halo around bright bodies.
-      wideGlowLayer = new GlowLayer('nbody-wide-glow', scene, {
-        mainTextureRatio: 0.25,
-        alphaBlendingMode: Constants.ALPHA_SCREENMODE,
-        camera,
-      });
-      wideGlowLayer.blurKernelSize = 132;
-      wideGlowLayer.intensity = 0.22;
-      wideGlowLayer.setExcludedByDefault(true);
-      wideGlowLayer.addIncludedOnlyMesh(bodyInstances.mesh);
-      wideGlowLayer.addIncludedOnlyMesh(bodyInstances.pointMesh);
-      wideGlowLayer.addIncludedOnlyMesh(velocityVectorMesh);
-      wideGlowLayer.addIncludedOnlyMesh(accelerationVectorMesh);
-      wideGlowLayer.referenceMeshToUseItsOwnMaterial(bodyInstances.mesh);
-      wideGlowLayer.referenceMeshToUseItsOwnMaterial(bodyInstances.pointMesh);
-      wideGlowLayer.referenceMeshToUseItsOwnMaterial(velocityVectorMesh);
-      wideGlowLayer.referenceMeshToUseItsOwnMaterial(accelerationVectorMesh);
+      // Second large-radius glow pass only on desktop
+      if (!isMobile) {
+        wideGlowLayer = new GlowLayer('nbody-wide-glow', scene, {
+          mainTextureRatio: 0.25,
+          alphaBlendingMode: Constants.ALPHA_SCREENMODE,
+          camera,
+        });
+        wideGlowLayer.blurKernelSize = 132;
+        wideGlowLayer.intensity = 0.22;
+        wideGlowLayer.setExcludedByDefault(true);
+        wideGlowLayer.addIncludedOnlyMesh(bodyInstances.mesh);
+        wideGlowLayer.addIncludedOnlyMesh(bodyInstances.pointMesh);
+        wideGlowLayer.addIncludedOnlyMesh(velocityVectorMesh);
+        wideGlowLayer.addIncludedOnlyMesh(accelerationVectorMesh);
+        wideGlowLayer.referenceMeshToUseItsOwnMaterial(bodyInstances.mesh);
+        wideGlowLayer.referenceMeshToUseItsOwnMaterial(bodyInstances.pointMesh);
+        wideGlowLayer.referenceMeshToUseItsOwnMaterial(velocityVectorMesh);
+        wideGlowLayer.referenceMeshToUseItsOwnMaterial(accelerationVectorMesh);
+      }
     }
 
     const orbitTrails = createOrbitTrailManager(scene, renderTheme, stableColorSeed);

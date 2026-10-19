@@ -570,10 +570,8 @@ int main(int argc, char* argv[]) {
         [&isSimRunning]() {
             return isSimRunning.load();
         },
-        [&controlBridge, &isSimRunning, &broadcasterPtr]() {
-            cout << "[auth] Master disconnected -> auto-pausing simulation\n";
-            isSimRunning = false;
-            controlBridge.enqueueMessage("control:set?paused=1");
+        [&broadcasterPtr]() {
+            cout << "[auth] Master connection dropped (simulation continues running)\n";
             if (broadcasterPtr) broadcasterPtr->notifySimStateChanged();
         });
 

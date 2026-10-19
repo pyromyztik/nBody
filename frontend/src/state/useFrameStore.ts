@@ -164,8 +164,9 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
     const prev = get();
     fpsWindowFrameCount += 1;
     const windowElapsed = receivedAt - fpsWindowStart;
-    if (windowElapsed >= 400) {
-      currentFps = Math.min(240, Math.round((fpsWindowFrameCount * 1000) / windowElapsed));
+    if (windowElapsed >= 500) {
+      const instantFps = Math.min(240, Math.round((fpsWindowFrameCount * 1000) / windowElapsed));
+      currentFps = currentFps > 0 ? Math.round(currentFps * 0.6 + instantFps * 0.4) : instantFps;
       fpsWindowStart = receivedAt;
       fpsWindowFrameCount = 0;
     }
