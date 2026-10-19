@@ -18,7 +18,6 @@ inline void setChildBounds(OctreeNode& child, const OctreeNode& parent, int octa
     child.maxY = (octant & 2) ? parent.maxY : midY;
     child.minZ = (octant & 4) ? midZ : parent.minZ;
     child.maxZ = (octant & 4) ? parent.maxZ : midZ;
-    child.sizeSq = parent.sizeSq * 0.25f;
 }
 }
 
@@ -163,11 +162,6 @@ void BarnesHutTree::build(const ParticleSystem& system) {
     nodes[rootIdx].minX = minX; nodes[rootIdx].maxX = maxX;
     nodes[rootIdx].minY = minY; nodes[rootIdx].maxY = maxY;
     nodes[rootIdx].minZ = minZ; nodes[rootIdx].maxZ = maxZ;
-    const float sizeX = maxX - minX;
-    const float sizeY = maxY - minY;
-    const float sizeZ = maxZ - minZ;
-    const float rootSize = max(sizeX, max(sizeY, sizeZ));
-    nodes[rootIdx].sizeSq = rootSize * rootSize;
 
     // insert all particles into tree
     for (size_t i = 0; i < n; ++i) 

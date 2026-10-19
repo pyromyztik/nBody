@@ -95,7 +95,6 @@ let velocityFilterInitialized = false;
 let fpsWindowStart = performance.now();
 let fpsWindowFrameCount = 0;
 let currentFps = 0;
-let awaitingNewScenario = false;
 
 function resetPositionHistory() {
   historyFrames = [-1, -1, -1];
@@ -155,12 +154,6 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
     receivedAt,
     bytes
   }) => {
-    if (awaitingNewScenario) {
-      if (frame > 2) {
-        return; // Drop lingering in-flight frames from previous scenario
-      }
-      awaitingNewScenario = false;
-    }
     const prev = get();
     fpsWindowFrameCount += 1;
     const windowElapsed = receivedAt - fpsWindowStart;
@@ -338,7 +331,6 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   setActiveScenarioTitle: (activeScenarioTitle: string) => set({ activeScenarioTitle }),
   reset: () => {
     resetPositionHistory();
-    awaitingNewScenario = true;
     set((state) => ({
       frame: 0,
       bodyCount: 0,

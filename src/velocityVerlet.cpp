@@ -52,15 +52,20 @@ class SimulationKernel {
                 accumulateForce(dx, dy, dz, distSq, node.totalMass, particleMass, fx, fy, fz);
                 continue;
             }
-            if (node.sizeSq < THETA_SQ * (distSq + SOFTENING_SQ)) {
+            const float sizeX = node.maxX - node.minX;
+            const float sizeY = node.maxY - node.minY;
+            const float sizeZ = node.maxZ - node.minZ;
+            const float size = max(sizeX, max(sizeY, sizeZ));
+            const float dist = sqrt(distSq + SOFTENING_SQ);
+
+            if ((size / dist) < THETA)
                 accumulateForce(dx, dy, dz, distSq, node.totalMass, particleMass, fx, fy, fz);
-            } else {
+            else 
                 for (int i = 0; i < 8; ++i) {
                     const int childIdx = node.children[i];
                     if (childIdx != -1) 
                         stack.push_back(childIdx);
                 }
-            }
         }
         system.setForce(static_cast<size_t>(pIdx), fx, fy, fz);
     }
@@ -80,7 +85,7 @@ class SimulationKernel {
         {
             vector<int> stack;
             stack.reserve(128);
-            #pragma omp for schedule(guided)
+            #pragma omp for
             for (ptrdiff_t i = 0; i < static_cast<ptrdiff_t>(n); ++i) 
                 applyForceFromTree(static_cast<int>(i), system, nodes, stack);
         }

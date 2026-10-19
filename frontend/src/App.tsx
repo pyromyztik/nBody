@@ -408,7 +408,7 @@ export default function App() {
 
   const [socketControls, setSocketControls] = useState<SocketControls | null>(null);
 
-  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted } = useFrameStore(
+  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted, isSimRunning } = useFrameStore(
     (state) => ({
       status: state.status,
       userRole: state.userRole,
@@ -416,7 +416,8 @@ export default function App() {
       lastAuthError: state.lastAuthError,
       hasReceivedAuthState: state.hasReceivedAuthState,
       isServerFull: state.isServerFull,
-      isLocallyHosted: state.isLocallyHosted
+      isLocallyHosted: state.isLocallyHosted,
+      isSimRunning: state.isSimRunning
     }),
     shallow
   );
@@ -508,9 +509,14 @@ export default function App() {
   const handleMasterLogout = useCallback(() => {
     sessionStorage.removeItem('nbody_master_pwd');
     sessionStorage.removeItem('nbody_master_name');
+    socketControls?.sendText('sim:console');
     socketControls?.logoutMaster();
     useFrameStore.getState().setUserRole('spectator');
-  }, [socketControls]);
+    useFrameStore.getState().reset();
+    setActiveScenarioSelection(null);
+    setIsSpectating(false);
+    navigateToRoute('landing', true);
+  }, [socketControls, navigateToRoute]);
 
   // If an invalid password error occurred, clear saved credentials
   useEffect(() => {
@@ -567,6 +573,14 @@ export default function App() {
       }
     }
   }, [userRole, hasMaster, route, isSpectating, navigateToRoute]);
+
+  // Auto-redirect if user reloaded or navigated to /sim but there is no running simulation
+  useEffect(() => {
+    if (!hasReceivedAuthState) return;
+    if (route === 'simulation' && !isSimRunning && activeScenarioSelection === null && !hasMaster) {
+      navigateToRoute('landing', true);
+    }
+  }, [hasReceivedAuthState, route, isSimRunning, activeScenarioSelection, hasMaster, navigateToRoute]);
 
   const activeScenarioStartMessage = useMemo(() => {
     if (activeScenarioSelection === null) {

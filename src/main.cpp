@@ -449,13 +449,8 @@ namespace {
 
     size_t calculateAdaptiveTargetFps(size_t bodyCount) {
         if (bodyCount <= 3) return 240;
-        // Continuous rational scaling curve:
-        // N = 3       -> 240 fps
-        // N = 5,000   -> 60 fps
-        // N = 30,000  -> ~33 fps (approaching 30 fps asymptote)
-        const double ratio = static_cast<double>(bodyCount) / 1267.0;
-        const double fps = 30.0 + 210.0 / (1.0 + std::pow(ratio, 1.3));
-        return static_cast<size_t>(std::clamp(std::round(fps), 30.0, 240.0));
+        if (bodyCount <= 4000) return 60;
+        return 30; // 30Hz target rate for Galaxy and large particle systems
     }
 
 }

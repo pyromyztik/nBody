@@ -160,20 +160,18 @@ export function HudPanel({
         <div className={styles.hudHeader}>
           <h1 className={styles.hudTitle}>{scenarioTitle}</h1>
           <div className={styles.hudActions}>
-            {userRole === 'master' && (
-              <button
-                className={`${styles.hudIconButton} ${styles.hudBackButton}`.trim()}
-                type="button"
-                onClick={onBackToLanding}
-                aria-label="Back to landing page"
-                title="Back to scenario selector"
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m12 19-7-7 7-7"/>
-                  <path d="M19 12H5"/>
-                </svg>
-              </button>
-            )}
+            <button
+              className={`${styles.hudIconButton} ${styles.hudBackButton}`.trim()}
+              type="button"
+              onClick={onBackToLanding}
+              aria-label="Back to landing page"
+              title="Back to scenario selector"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m12 19-7-7 7-7"/>
+                <path d="M19 12H5"/>
+              </svg>
+            </button>
             <button
               className={styles.hudIconButton}
               type="button"
