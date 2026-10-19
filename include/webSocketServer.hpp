@@ -342,7 +342,7 @@ public:
                                 oldData->isSpectator = false;
                             }
                             oldMasterWs->send("auth:unauthorized?reason=" + nbody_auth::urlEncode("Master session resumed from another connection"), uWS::OpCode::TEXT);
-                            oldMasterWs->close();
+                            oldMasterWs->end(1000, "Master session resumed from another connection");
                             currentMasterWs_ = nullptr;
                         }
 
