@@ -408,6 +408,17 @@ export default function App() {
   const [simulationSessionToken, setSimulationSessionToken] = useState(0);
 
   const [socketControls, setSocketControls] = useState<SocketControls | null>(null);
+
+  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted } = useFrameStore((state) => ({
+    status: state.status,
+    userRole: state.userRole,
+    hasMaster: state.hasMaster,
+    lastAuthError: state.lastAuthError,
+    hasReceivedAuthState: state.hasReceivedAuthState,
+    isServerFull: state.isServerFull,
+    isLocallyHosted: state.isLocallyHosted
+  }));
+
   const [isWaking, setIsWaking] = useState(false);
   const [wakeSecondsRemaining, setWakeSecondsRemaining] = useState(25);
   const [wakeStatusMessage, setWakeStatusMessage] = useState<string | null>(null);
@@ -454,15 +465,6 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [isWaking, socketControls]);
 
-  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull, isLocallyHosted } = useFrameStore((state) => ({
-    status: state.status,
-    userRole: state.userRole,
-    hasMaster: state.hasMaster,
-    lastAuthError: state.lastAuthError,
-    hasReceivedAuthState: state.hasReceivedAuthState,
-    isServerFull: state.isServerFull,
-    isLocallyHosted: state.isLocallyHosted
-  }));
 
   // Initialize and maintain root WebSocket connection
   useEffect(() => {
