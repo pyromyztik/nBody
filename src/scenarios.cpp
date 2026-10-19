@@ -350,7 +350,7 @@ namespace {
     bool runPythonScript(const string& scriptPath,
                          const vector<string>& args,
                          ostream& output) {
-        const vector<string> launchers = {"python", "py -3"};
+        const vector<string> launchers = {"python3", "python", "py -3"};
 
         for (size_t i = 0; i < launchers.size(); ++i) {
             ostringstream command;

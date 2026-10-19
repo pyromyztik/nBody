@@ -432,7 +432,7 @@ export default function App() {
 
     try {
       await fetch(wakeUrl, { method: 'POST', mode: 'cors' });
-      setWakeStatusMessage('Boot signal acknowledged. Starting Zen 4 node...');
+      setWakeStatusMessage('Boot signal acknowledged. Starting simulation node...');
     } catch (err) {
       console.warn('Wakeup request dispatched:', err);
       setWakeStatusMessage('Boot signal dispatched. Waiting for cluster network...');
@@ -686,7 +686,7 @@ export default function App() {
             {isWaking
               ? `Estimated node readiness in ~${wakeSecondsRemaining}s. Connecting automatically...`
               : (hasWakeUrl
-                ? 'Click below to spin up the dedicated Zen 4 compute cluster (~20 seconds).'
+                ? 'Click below to spin up the dedicated compute node (~20 seconds).'
                 : <>Please verify that the backend server is running (<code style={{ color: '#93c5fd' }}>./build/nbody_ws.exe</code>) to use the simulation.</>)}
           </p>
           {hasWakeUrl ? (
