@@ -1,6 +1,13 @@
 import type { FramePayload } from '../state/useFrameStore';
+import { useFrameStore } from '../state/useFrameStore';
 import { decodeFrame } from './frameDecode';
 import { parseSimControlMessage, type SimControlSnapshot } from './simControl';
+import {
+  parseAuthStateMessage,
+  parseAuthResponseMessage,
+  formatMasterLoginMessage,
+  formatMasterLogoutMessage
+} from './authControl';
 
 export type StatusHandler = (status: 'connecting' | 'connected' | 'disconnected' | 'error') => void;
 export type FrameHandler = (frame: FramePayload) => void;
@@ -9,6 +16,9 @@ export type SimControlHandler = (snapshot: SimControlSnapshot) => void;
 export type SocketControls = {
   close: () => void;
   sendText: (message: string) => boolean;
+  loginAsMaster: (password: string, name: string) => boolean;
+  logoutMaster: () => boolean;
+  reconnect: () => void;
 };
 
 const EMPTY_UINT8_ARRAY = new Uint8Array(0);
@@ -140,11 +150,13 @@ export function startFrameWebSocket(
     }
   };
 
-  const connect = () => {
+  const connect = (isExplicit = false) => {
     if (stop) return;
     cleanupRetry();
     resetCarry();
-    onStatus?.('connecting');
+    if (isExplicit) {
+      onStatus?.('connecting');
+    }
 
     let nextSocket: WebSocket;
     try {
@@ -152,7 +164,7 @@ export function startFrameWebSocket(
     } catch (err) {
       console.error('Failed to create WebSocket', err);
       onStatus?.('error');
-      if (!stop) retryTimer = window.setTimeout(connect, retryDelayMs);
+      if (!stop) retryTimer = window.setTimeout(() => connect(false), 1000);
       return;
     }
 
@@ -166,18 +178,55 @@ export function startFrameWebSocket(
       onStatus?.('error');
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev: CloseEvent) => {
       resetCarry();
+      useFrameStore.getState().setUserRole('spectator');
+
+      // Code 1008 is Policy Violation (sent when server is full)
+      const isFull = ev.code === 1008 || (ev.reason && ev.reason.toLowerCase().includes('server is full'));
+      if (isFull) {
+        console.warn('[ws] connection rejected: server is full', ev.code, ev.reason);
+        useFrameStore.getState().setIsServerFull(true);
+        onStatus?.('disconnected');
+        return;
+      }
+
       onStatus?.('disconnected');
-      if (!stop) retryTimer = window.setTimeout(connect, retryDelayMs);
+      if (!stop) retryTimer = window.setTimeout(() => connect(false), 1000);
     };
 
     ws.onmessage = async (ev: MessageEvent<ArrayBuffer | Blob | string>) => {
       const data = ev.data;
       if (typeof data === 'string') {
+        const authState = parseAuthStateMessage(data);
+        if (authState) {
+          useFrameStore.getState().setAuthState(authState);
+          return;
+        }
+
+        const authResp = parseAuthResponseMessage(data);
+        if (authResp) {
+          if (authResp.type === 'ok') {
+            useFrameStore.getState().setIsServerFull(false);
+            if (authResp.role) useFrameStore.getState().setUserRole(authResp.role);
+            if (authResp.masterName) {
+              useFrameStore.getState().setAuthState({ masterName: authResp.masterName, hasMaster: true });
+            }
+            useFrameStore.getState().setLastAuthError(null);
+          } else if (authResp.type === 'error' || authResp.type === 'unauthorized') {
+            if (authResp.reason?.toLowerCase().includes('server is full')) {
+              useFrameStore.getState().setIsServerFull(true);
+            }
+            useFrameStore.getState().setLastAuthError(authResp.reason || 'Authentication error');
+            console.warn('[auth]', authResp.reason);
+          }
+          return;
+        }
+
         const snapshot = parseSimControlMessage(data);
         if (snapshot) {
           onSimControl?.(snapshot);
+          return;
         }
       } else if (data instanceof ArrayBuffer) {
         parseChunk(data);
@@ -187,7 +236,21 @@ export function startFrameWebSocket(
     };
   };
 
-  connect();
+  connect(true);
+
+  const sendText = (message: string): boolean => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    try {
+      ws.send(message);
+      return true;
+    } catch (err) {
+      console.error('Failed to send WebSocket message', err);
+      return false;
+    }
+  };
 
   return {
     close: () => {
@@ -195,18 +258,22 @@ export function startFrameWebSocket(
       cleanupRetry();
       ws?.close();
     },
-    sendText: (message: string) => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        return false;
-      }
-
+    sendText,
+    loginAsMaster: (password: string, name: string) => {
+      return sendText(formatMasterLoginMessage(password, name));
+    },
+    logoutMaster: () => {
+      return sendText(formatMasterLogoutMessage());
+    },
+    reconnect: () => {
+      stop = false;
+      cleanupRetry();
       try {
-        ws.send(message);
-        return true;
-      } catch (err) {
-        console.error('Failed to send WebSocket message', err);
-        return false;
+        ws?.close();
+      } catch {
+        // ignore
       }
+      connect(true);
     }
   };
 }

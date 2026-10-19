@@ -152,3 +152,97 @@
     animation: none;
   }
 }
+
+.serverFullShell {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 40px);
+  background:
+    radial-gradient(circle at 50% 30%, rgba(239, 68, 68, 0.12), transparent 60%),
+    linear-gradient(160deg, #090a10 0%, #040508 60%, #0d0810 100%);
+  backdrop-filter: blur(8px);
+}
+
+.serverFullCard {
+  width: min(500px, 100%);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 20px;
+  background: rgba(14, 17, 27, 0.96);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 35px rgba(239, 68, 68, 0.12);
+  padding: clamp(24px, 4vw, 40px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.serverFullIconWrapper {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f87171;
+  margin-bottom: 20px;
+}
+
+.serverFullIconWrapper svg {
+  width: 36px;
+  height: 36px;
+}
+
+.serverFullTitle {
+  margin: 0;
+  font-size: clamp(2rem, 3.8vw, 2.7rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #f87171;
+  line-height: 1.05;
+}
+
+.serverFullDescription {
+  margin: 14px 0 0;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+  max-width: 40ch;
+}
+
+.serverFullSubtext {
+  margin: 10px 0 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #94a3b8;
+  max-width: 42ch;
+}
+
+.serverFullRetryBtn {
+  margin-top: 28px;
+  border: none;
+  border-radius: 10px;
+  background: #daa453;
+  color: #181119;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  padding: 12px 30px;
+  cursor: pointer;
+  transition: transform 140ms ease, background-color 140ms ease, filter 140ms ease;
+}
+
+.serverFullRetryBtn:hover {
+  background: #efb968;
+  transform: translateY(-1px);
+  filter: saturate(1.1);
+}
+
+.serverFullRetryBtn:active {
+  transform: translateY(1px);
+}

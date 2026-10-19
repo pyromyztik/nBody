@@ -15,6 +15,7 @@ import {
 import { MobileJoystick } from './components/hud/MobileJoystick';
 import { HudPanel } from './components/hud/HudPanel';
 import { SimControlDock } from './components/hud/SimControlDock';
+import { MasterLoginModal } from './components/auth/MasterLoginModal';
 import { ThreeNBody } from './graphics/ThreeNBody.tsx';
 import {
   formatScenarioStartMessage,
@@ -42,15 +43,18 @@ type ViewportControlInsets = {
 type AppRoute = 'landing' | 'simulation';
 
 type SimulationPageProps = {
-  scenarioStartMessage: string;
-  scenarioSelection: ScenarioSelection;
+  scenarioStartMessage: string | null;
+  scenarioSelection: ScenarioSelection | null;
+  socketControls: SocketControls | null;
   onBackToLanding: () => void;
+  onOpenMasterLogin?: () => void;
 };
 
 type SimulationLoadingOverlayProps = {
   title: string;
   detail: string;
   statusLabel: string;
+  showBackButton?: boolean;
   onBackToLanding: () => void;
 };
 
@@ -67,7 +71,8 @@ function pathForRoute(route: AppRoute): string {
   return route === 'simulation' ? SIMULATION_PATH : '/';
 }
 
-function getScenarioTitle(selection: ScenarioSelection): string {
+function getScenarioTitle(selection: ScenarioSelection | null): string {
+  if (!selection) return 'Live Simulation';
   switch (selection.kind) {
     case 'galaxy':
       return 'Galaxy';
@@ -86,6 +91,7 @@ function SimulationLoadingOverlay({
   title,
   detail,
   statusLabel,
+  showBackButton = true,
   onBackToLanding
 }: SimulationLoadingOverlayProps) {
   return (
@@ -95,13 +101,15 @@ function SimulationLoadingOverlay({
         <p className={appStyles.loadingStatusLabel}>{statusLabel}</p>
         <h2 className={appStyles.loadingTitle}>{title}</h2>
         <p className={appStyles.loadingDetail}>{detail}</p>
-        <button
-          className={appStyles.loadingBackButton}
-          type="button"
-          onClick={onBackToLanding}
-        >
-          Back To Landing
-        </button>
+        {showBackButton && (
+          <button
+            className={appStyles.loadingBackButton}
+            type="button"
+            onClick={onBackToLanding}
+          >
+            Back To Landing
+          </button>
+        )}
       </div>
     </div>
   );
@@ -110,7 +118,9 @@ function SimulationLoadingOverlay({
 function SimulationPage({
   scenarioStartMessage,
   scenarioSelection,
-  onBackToLanding
+  socketControls,
+  onBackToLanding,
+  onOpenMasterLogin
 }: SimulationPageProps) {
   const {
     status,
@@ -118,7 +128,12 @@ function SimulationPage({
     simDt,
     hasSimControlSnapshot,
     bodyCount,
-    positions
+    positions,
+    userRole,
+    hasMaster,
+    masterName,
+    isSimRunning,
+    activeScenarioTitle
   } = useFrameStore(
     (state) => ({
       status: state.status,
@@ -126,23 +141,32 @@ function SimulationPage({
       simDt: state.simDt,
       hasSimControlSnapshot: state.hasSimControlSnapshot,
       bodyCount: state.bodyCount,
-      positions: state.positions
+      positions: state.positions,
+      userRole: state.userRole,
+      hasMaster: state.hasMaster,
+      masterName: state.masterName,
+      isSimRunning: state.isSimRunning,
+      activeScenarioTitle: state.activeScenarioTitle
     }),
     shallow
   );
 
-  const socketControlsRef = useRef<SocketControls | null>(null);
   const backToLandingTimeoutRef = useRef<number | null>(null);
   const backNavigationPendingRef = useRef(false);
   const scenarioStartSentRef = useRef(false);
   const [scenarioStartDispatched, setScenarioStartDispatched] = useState(false);
   const hasFirstFrame = positions !== null && bodyCount > 0;
+  const isMaster = userRole === 'master';
+
   // Frames prove the backend has loaded a runnable simulation even if the control-state
   // snapshot text message was delayed or missed.
   const hasUsableSimControlState = hasSimControlSnapshot || hasFirstFrame;
-  const controlsDisabled = status !== 'connected' || !hasUsableSimControlState;
-  const useStableOrbitVisualTheme = scenarioSelection.kind === 'stable-orbits';
-  const scenarioTitle = getScenarioTitle(scenarioSelection);
+  const controlsDisabled = status !== 'connected' || !hasUsableSimControlState || !isMaster;
+  const scenarioTitle = isMaster
+    ? (getScenarioTitle(scenarioSelection) || activeScenarioTitle || 'Simulation')
+    : (activeScenarioTitle || getScenarioTitle(scenarioSelection) || 'Simulation');
+  const useStableOrbitVisualTheme =
+    scenarioSelection?.kind === 'stable-orbits' || scenarioTitle === 'Stable Orbits';
 
   const [virtualMove, setVirtualMove] = useState<VirtualMoveState>({ x: 0, y: 0 });
   const [viewportControlInsets, setViewportControlInsets] = useState<ViewportControlInsets>({
@@ -151,27 +175,18 @@ function SimulationPage({
   });
 
   useEffect(() => {
-    const { pushFrame, setStatus, setSimControlSnapshot } = useFrameStore.getState();
-    const controls = startFrameWebSocket(WS_URL, pushFrame, setStatus, setSimControlSnapshot);
-    socketControlsRef.current = controls;
-    return () => {
-      if (backToLandingTimeoutRef.current !== null) {
-        window.clearTimeout(backToLandingTimeoutRef.current);
-      }
-      // Pause on any simulation page exit (including browser/phone back navigation).
-      controls.sendText('control:set?paused=1');
-      socketControlsRef.current = null;
-      controls.close();
-    };
-  }, []);
-
-  useEffect(() => {
     scenarioStartSentRef.current = false;
     setScenarioStartDispatched(false);
   }, [scenarioStartMessage]);
 
   useEffect(() => {
-    if (status !== 'connected') {
+    // If we're a spectator (no scenarioStartMessage), we don't dispatch scenario start
+    if (!scenarioStartMessage) {
+      setScenarioStartDispatched(true);
+      return;
+    }
+
+    if (status !== 'connected' || !isMaster || !socketControls) {
       scenarioStartSentRef.current = false;
       setScenarioStartDispatched(false);
       return;
@@ -181,13 +196,13 @@ function SimulationPage({
       return;
     }
 
-    const sent = socketControlsRef.current?.sendText(scenarioStartMessage) ?? false;
+    const sent = socketControls.sendText(scenarioStartMessage);
     if (sent) {
       scenarioStartSentRef.current = true;
       setScenarioStartDispatched(true);
-      socketControlsRef.current?.sendText('control:set?paused=0');
+      socketControls.sendText('control:set?paused=0');
     }
-  }, [scenarioStartMessage, status]);
+  }, [scenarioStartMessage, status, isMaster, socketControls]);
 
   let loadingTitle = 'Connecting To Backend';
   let loadingDetail = 'Opening a websocket connection to the simulation server.';
@@ -201,6 +216,22 @@ function SimulationPage({
     loadingTitle = 'Backend Disconnected';
     loadingDetail = 'Connection to the simulation server was lost. Attempting to reconnect.';
     loadingStatusLabel = 'Reconnecting';
+  } else if (!isMaster) {
+    if (hasMaster) {
+      if (!isSimRunning) {
+        loadingTitle = 'Waiting for Master';
+        loadingDetail = `Master (${masterName || 'Master'}) is configuring a new scenario in the console.`;
+        loadingStatusLabel = 'Awaiting Simulation';
+      } else {
+        loadingTitle = 'Connecting to Master Stream';
+        loadingDetail = `Spectating live simulation commanded by ${masterName || 'Master'}. Waiting for physics data...`;
+        loadingStatusLabel = 'Live Stream';
+      }
+    } else {
+      loadingTitle = 'Waiting for Master';
+      loadingDetail = 'No Master is currently running a simulation. You can claim the Master role to launch one.';
+      loadingStatusLabel = 'Awaiting Master';
+    }
   } else if (status === 'connected' && !scenarioStartDispatched) {
     loadingTitle = 'Preparing Scenario Request';
     loadingDetail = 'Sending selected scenario parameters to the backend.';
@@ -215,7 +246,7 @@ function SimulationPage({
     loadingStatusLabel = 'Scenario Startup';
   }
 
-  const showLoadingOverlay = !hasFirstFrame;
+  const showLoadingOverlay = !hasFirstFrame || (!isMaster && !isSimRunning);
   const showPausedVignette = simPaused && !showLoadingOverlay;
 
   useEffect(() => {
@@ -259,8 +290,9 @@ function SimulationPage({
   }, []);
 
   const sendControlMessage = useCallback((message: string): boolean => {
-    return socketControlsRef.current?.sendText(message) ?? false;
-  }, []);
+    if (!isMaster) return false;
+    return socketControls?.sendText(message) ?? false;
+  }, [isMaster, socketControls]);
 
   const handleBackToLandingRequest = useCallback(() => {
     if (backNavigationPendingRef.current) {
@@ -268,20 +300,15 @@ function SimulationPage({
     }
 
     backNavigationPendingRef.current = true;
-    const pauseSent = socketControlsRef.current?.sendText('control:set?paused=1') ?? false;
 
-    if (!pauseSent) {
-      onBackToLanding();
-      backNavigationPendingRef.current = false;
-      return;
+    // Master returns to console: tell the backend simulation is stopped
+    if (isMaster) {
+      socketControls?.sendText('sim:console');
     }
 
-    backToLandingTimeoutRef.current = window.setTimeout(() => {
-      onBackToLanding();
-      backNavigationPendingRef.current = false;
-      backToLandingTimeoutRef.current = null;
-    }, 60);
-  }, [onBackToLanding]);
+    onBackToLanding();
+    backNavigationPendingRef.current = false;
+  }, [isMaster, onBackToLanding, socketControls]);
 
   const handleVirtualMoveChange = useCallback((x: number, y: number) => {
     setVirtualMove({ x, y });
@@ -305,6 +332,7 @@ function SimulationPage({
         controlsDisabled={controlsDisabled}
         onSendControlMessage={sendControlMessage}
         onBackToLanding={handleBackToLandingRequest}
+        onOpenMasterLogin={onOpenMasterLogin}
       />
       <SimControlDock
         controlsDisabled={controlsDisabled}
@@ -323,6 +351,7 @@ function SimulationPage({
           title={loadingTitle}
           detail={loadingDetail}
           statusLabel={loadingStatusLabel}
+          showBackButton={isMaster}
           onBackToLanding={handleBackToLandingRequest}
         />
       )}
@@ -336,7 +365,93 @@ export default function App() {
     useState<ScenarioFormState>(DEFAULT_SCENARIO_FORM_STATE);
   const [activeScenarioSelection, setActiveScenarioSelection] =
     useState<ScenarioSelection | null>(null);
+  const [isSpectating, setIsSpectating] = useState(false);
   const [simulationSessionToken, setSimulationSessionToken] = useState(0);
+  const [masterLoginOpen, setMasterLoginOpen] = useState(false);
+
+  const [socketControls, setSocketControls] = useState<SocketControls | null>(null);
+
+  const { status, userRole, hasMaster, lastAuthError, hasReceivedAuthState, isServerFull } = useFrameStore((state) => ({
+    status: state.status,
+    userRole: state.userRole,
+    hasMaster: state.hasMaster,
+    lastAuthError: state.lastAuthError,
+    hasReceivedAuthState: state.hasReceivedAuthState,
+    isServerFull: state.isServerFull
+  }));
+
+  const initialAuthPromptCheckedRef = useRef(false);
+
+  useEffect(() => {
+    if (status === 'disconnected' || status === 'error') {
+      initialAuthPromptCheckedRef.current = false;
+    }
+  }, [status]);
+
+  // Automatically present the master auth modal as the first thing on load if no master exists
+  useEffect(() => {
+    if (!hasReceivedAuthState) return;
+    if (initialAuthPromptCheckedRef.current) return;
+
+    initialAuthPromptCheckedRef.current = true;
+    if (!hasMaster && userRole !== 'master') {
+      setMasterLoginOpen(true);
+    }
+  }, [hasReceivedAuthState, hasMaster, userRole]);
+
+  // Initialize and maintain root WebSocket connection
+  useEffect(() => {
+    const { pushFrame, setStatus, setSimControlSnapshot } = useFrameStore.getState();
+    const controls = startFrameWebSocket(WS_URL, pushFrame, setStatus, setSimControlSnapshot);
+    setSocketControls(controls);
+
+    // Auto-reconnect as master if credentials saved in session
+    const savedPwd = sessionStorage.getItem('nbody_master_pwd');
+    const savedName = sessionStorage.getItem('nbody_master_name') || 'Master';
+    if (savedPwd) {
+      const timer = window.setTimeout(() => {
+        controls.loginAsMaster(savedPwd, savedName);
+      }, 120);
+      return () => {
+        window.clearTimeout(timer);
+        setSocketControls(null);
+        controls.close();
+      };
+    }
+
+    return () => {
+      setSocketControls(null);
+      controls.close();
+    };
+  }, []);
+
+  const handleMasterLogin = useCallback((password: string, name: string) => {
+    sessionStorage.setItem('nbody_master_pwd', password);
+    sessionStorage.setItem('nbody_master_name', name);
+    return socketControls?.loginAsMaster(password, name) ?? false;
+  }, [socketControls]);
+
+  const handleMasterLogout = useCallback(() => {
+    sessionStorage.removeItem('nbody_master_pwd');
+    sessionStorage.removeItem('nbody_master_name');
+    socketControls?.logoutMaster();
+    useFrameStore.getState().setUserRole('spectator');
+  }, [socketControls]);
+
+  // If auth error occurred, clear saved credentials so we don't get stuck in a loop
+  useEffect(() => {
+    if (lastAuthError) {
+      sessionStorage.removeItem('nbody_master_pwd');
+      sessionStorage.removeItem('nbody_master_name');
+    }
+  }, [lastAuthError]);
+
+  // When user successfully authenticates as master, close modal
+  useEffect(() => {
+    if (userRole === 'master') {
+      setMasterLoginOpen(false);
+    }
+  }, [userRole]);
 
   const navigateToRoute = useCallback((nextRoute: AppRoute, replace = false) => {
     const nextPath = pathForRoute(nextRoute);
@@ -361,17 +476,30 @@ export default function App() {
     };
   }, []);
 
+  // Auto-routing for clients/spectators:
+  // "as a client, i should simply be taken to whatever is currently being simulated immediately rather than seeing the console landing page,
+  // and only when there is no master should I be put in the console landing page."
   useEffect(() => {
-    if (route === 'simulation' && activeScenarioSelection === null) {
-      navigateToRoute('landing', true);
+    if (userRole === 'master') {
+      return; // Master freely navigates between landing and simulation
     }
-  }, [activeScenarioSelection, navigateToRoute, route]);
 
-  useEffect(() => {
-    if (route === 'landing' && activeScenarioSelection !== null) {
-      setActiveScenarioSelection(null);
+    if (hasMaster) {
+      // Master is active: client immediately spectates whatever is being simulated!
+      if (route !== 'simulation' || !isSpectating) {
+        setIsSpectating(true);
+        setActiveScenarioSelection(null);
+        navigateToRoute('simulation');
+      }
+    } else {
+      // No master is active: client is put in the console landing page!
+      if (route !== 'landing' || isSpectating) {
+        setIsSpectating(false);
+        setActiveScenarioSelection(null);
+        navigateToRoute('landing');
+      }
     }
-  }, [activeScenarioSelection, route]);
+  }, [userRole, hasMaster, route, isSpectating, navigateToRoute]);
 
   const activeScenarioStartMessage = useMemo(() => {
     if (activeScenarioSelection === null) {
@@ -380,14 +508,9 @@ export default function App() {
     return formatScenarioStartMessage(activeScenarioSelection);
   }, [activeScenarioSelection]);
 
-  useEffect(() => {
-    if (route === 'simulation' && activeScenarioStartMessage === null) {
-      navigateToRoute('landing', true);
-    }
-  }, [activeScenarioStartMessage, navigateToRoute, route]);
-
   const handleStartSimulation = useCallback((selection: ScenarioSelection) => {
     setActiveScenarioSelection(selection);
+    setIsSpectating(false);
 
     const frameStore = useFrameStore.getState();
     frameStore.reset();
@@ -402,34 +525,147 @@ export default function App() {
   const handleBackToLanding = useCallback(() => {
     useFrameStore.getState().reset();
     setActiveScenarioSelection(null);
+    setIsSpectating(false);
     navigateToRoute('landing');
   }, [navigateToRoute]);
 
   const showSimulationPage =
-    route === 'simulation'
-    && activeScenarioStartMessage !== null
-    && activeScenarioSelection !== null;
+    route === 'simulation' && (isSpectating || activeScenarioSelection !== null);
+
+  if (isServerFull) {
+    return (
+      <div className={appStyles.serverFullShell} role="alert" aria-live="assertive">
+        <div className={appStyles.serverFullCard}>
+          <div className={appStyles.serverFullIconWrapper} aria-hidden="true">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <path d="M16 3.128a4 4 0 0 1 0 7.744" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <circle cx="9" cy="7" r="4" />
+            </svg>
+          </div>
+          <h1 className={appStyles.serverFullTitle}>Server is Full</h1>
+          <p className={appStyles.serverFullDescription}>
+            The simulation is currently operating at maximum capacity (1 Master + 6 Spectators).
+          </p>
+          <p className={appStyles.serverFullSubtext}>
+            All spectator slots are occupied. Please wait for an open slot and try again.
+          </p>
+          <button
+            className={appStyles.serverFullRetryBtn}
+            type="button"
+            onClick={() => {
+              useFrameStore.getState().setIsServerFull(false);
+              socketControls?.reconnect();
+            }}
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'disconnected' || status === 'error') {
+    return (
+      <div className={appStyles.serverFullShell} role="alert" aria-live="assertive">
+        <div className={appStyles.serverFullCard}>
+          <div className={appStyles.serverFullIconWrapper} aria-hidden="true">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M7 2h13a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5" />
+              <path d="M10 10 2.5 2.5" />
+              <path d="M22 17v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h1" />
+              <path d="M2 14h12" />
+              <path d="M20 14h2" />
+              <path d="M22 22 2 2" />
+              <path d="M6 18h.01" />
+              <path d="M7 6h.01" />
+            </svg>
+          </div>
+          <h1 className={appStyles.serverFullTitle}>Backend Disconnected</h1>
+          <p className={appStyles.serverFullDescription}>
+            The simulation backend is currently offline or unreachable.
+          </p>
+          <p className={appStyles.serverFullSubtext}>
+            Please verify that the backend server is running (<code style={{ color: '#93c5fd' }}>./build/nbody_ws.exe</code>) to use the simulation.
+          </p>
+          <button
+            className={appStyles.serverFullRetryBtn}
+            type="button"
+            onClick={() => {
+              socketControls?.reconnect();
+            }}
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'connecting') {
+    return (
+      <div className={appStyles.serverFullShell} role="status" aria-live="polite">
+        <div className={appStyles.serverFullCard}>
+          <div className={appStyles.loadingSpinner} aria-hidden="true" style={{ width: 44, height: 44, marginBottom: 20 }} />
+          <h1 className={appStyles.serverFullTitle} style={{ color: '#e2e8f0', fontSize: '1.8rem' }}>Connecting</h1>
+          <p className={appStyles.serverFullDescription}>
+            Connecting to simulation backend...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       className={`${appStyles.appShell} ${showSimulationPage ? appStyles.simulationShell : ''}`.trim()}
     >
-      {route === 'simulation'
-      && activeScenarioStartMessage !== null
-      && activeScenarioSelection !== null ? (
+      {showSimulationPage ? (
         <SimulationPage
           key={simulationSessionToken}
           scenarioStartMessage={activeScenarioStartMessage}
           scenarioSelection={activeScenarioSelection}
+          socketControls={socketControls}
           onBackToLanding={handleBackToLanding}
+          onOpenMasterLogin={() => setMasterLoginOpen(true)}
         />
       ) : (
         <LandingPage
           formState={scenarioFormState}
           onFormStateChange={setScenarioFormState}
           onSimulate={handleStartSimulation}
+          onOpenMasterLogin={() => setMasterLoginOpen(true)}
+          onMasterLogout={handleMasterLogout}
         />
       )}
+
+      <MasterLoginModal
+        isOpen={masterLoginOpen}
+        onClose={() => setMasterLoginOpen(false)}
+        onLogin={handleMasterLogin}
+        errorMessage={lastAuthError}
+      />
     </div>
   );
 }

@@ -12,6 +12,7 @@ type HudPanelProps = {
   controlsDisabled: boolean;
   onSendControlMessage: (message: string) => boolean;
   onBackToLanding: () => void;
+  onOpenMasterLogin?: () => void;
 };
 
 function HudStats() {
@@ -85,10 +86,15 @@ export function HudPanel({
   wsUrl,
   controlsDisabled,
   onSendControlMessage,
-  onBackToLanding
+  onBackToLanding,
+  onOpenMasterLogin
 }: HudPanelProps) {
   const [hudMinimized, setHudMinimized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const { userRole } = useFrameStore((state) => ({
+    userRole: state.userRole
+  }));
 
   function handleToggleHudMinimized(): void {
     setHudMinimized((current) => {
@@ -156,18 +162,20 @@ export function HudPanel({
         <div className={styles.hudHeader}>
           <h1 className={styles.hudTitle}>{scenarioTitle}</h1>
           <div className={styles.hudActions}>
-            <button
-              className={`${styles.hudIconButton} ${styles.hudBackButton}`.trim()}
-              type="button"
-              onClick={onBackToLanding}
-              aria-label="Back to landing page"
-              title="Back to scenario selector"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m12 19-7-7 7-7"/>
-                <path d="M19 12H5"/>
-              </svg>
-            </button>
+            {userRole === 'master' && (
+              <button
+                className={`${styles.hudIconButton} ${styles.hudBackButton}`.trim()}
+                type="button"
+                onClick={onBackToLanding}
+                aria-label="Back to landing page"
+                title="Back to scenario selector"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m12 19-7-7 7-7"/>
+                  <path d="M19 12H5"/>
+                </svg>
+              </button>
+            )}
             <button
               className={styles.hudIconButton}
               type="button"

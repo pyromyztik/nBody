@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { ORBIT_TRAILS_ENABLED, WORLD_GRID_ENABLED } from '../lib/config';
 import type { SimControlSnapshot } from '../lib/simControl';
+import type { AuthState, UserRole } from '../lib/authControl';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -31,6 +32,16 @@ export type FrameState = {
   simDt: number;
   simDefaultDt: number;
   hasSimControlSnapshot: boolean;
+  userRole: UserRole;
+  hasMaster: boolean;
+  masterName: string;
+  spectatorCount: number;
+  maxSpectators: number;
+  isSimRunning: boolean;
+  lastAuthError: string | null;
+  hasReceivedAuthState: boolean;
+  activeScenarioTitle: string;
+  isServerFull: boolean;
 };
 
 export type FrameActions = {
@@ -43,6 +54,11 @@ export type FrameActions = {
   setInvertLook: (invert: boolean) => void;
   setCameraBaseMoveSpeed: (speed: number) => void;
   setSimControlSnapshot: (snapshot: SimControlSnapshot) => void;
+  setUserRole: (role: UserRole) => void;
+  setAuthState: (state: Partial<AuthState>) => void;
+  setLastAuthError: (error: string | null) => void;
+  setIsServerFull: (isFull: boolean) => void;
+  setActiveScenarioTitle: (title: string) => void;
   reset: () => void;
 };
 
@@ -58,7 +74,7 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   positions: null,
   velocities: null,
   fps: 0,
-  status: 'disconnected',
+  status: 'connecting',
   totalBytes: 0,
   lastFrameTime: performance.now(),
   showVelocityVectors: false,
@@ -71,6 +87,16 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   simDt: DEFAULT_SIM_CONTROL_STATE.dt,
   simDefaultDt: DEFAULT_SIM_CONTROL_STATE.defaultDt,
   hasSimControlSnapshot: false,
+  userRole: 'spectator',
+  hasMaster: false,
+  masterName: '',
+  spectatorCount: 0,
+  maxSpectators: 6,
+  isSimRunning: false,
+  lastAuthError: null,
+  hasReceivedAuthState: false,
+  activeScenarioTitle: 'Galaxy',
+  isServerFull: false,
   pushFrame: ({ frame, bodyCount, bodies, receivedAt, bytes }) => {
     const prev = get();
     const dt = receivedAt - prev.lastFrameTime;
@@ -148,14 +174,25 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
       simDefaultDt: snapshot.defaultDt,
       hasSimControlSnapshot: true
     }),
+  setUserRole: (role: UserRole) => set({ userRole: role }),
+  setAuthState: (partial: Partial<AuthState>) =>
+    set((state) => ({
+      ...state,
+      ...partial,
+      activeScenarioTitle: partial.scenario || state.activeScenarioTitle,
+      hasReceivedAuthState: true
+    })),
+  setLastAuthError: (error: string | null) => set({ lastAuthError: error }),
+  setIsServerFull: (isServerFull: boolean) => set({ isServerFull }),
+  setActiveScenarioTitle: (activeScenarioTitle: string) => set({ activeScenarioTitle }),
   reset: () =>
-    set({
+    set((state) => ({
       frame: 0,
       bodyCount: 0,
       positions: null,
       velocities: null,
       fps: 0,
-      status: 'disconnected',
+      status: state.status,
       totalBytes: 0,
       lastFrameTime: performance.now(),
       showVelocityVectors: false,
@@ -168,5 +205,5 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
       simDt: DEFAULT_SIM_CONTROL_STATE.dt,
       simDefaultDt: DEFAULT_SIM_CONTROL_STATE.defaultDt,
       hasSimControlSnapshot: false
-    })
+    }))
 }));

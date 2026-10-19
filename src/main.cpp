@@ -263,6 +263,16 @@ namespace {
         broadcaster.broadcast(packet);
     }
 
+    string scenarioTitleFromSelection(const ScenarioSelection& selection) {
+        switch (selection.kind) {
+            case ScenarioKind::Galaxy: return "Galaxy";
+            case ScenarioKind::GalaxyCollision: return "Galaxy Collision";
+            case ScenarioKind::StableOrbits: return "Stable Orbits";
+            case ScenarioKind::AccretionDisk: return "Accretion Disk";
+            default: return "Simulation";
+        }
+    }
+
 }
 
 int main() {
@@ -275,19 +285,30 @@ int main() {
     ParticleSystem system;
     ParticleSystem initialSystem;
     bool hasLoadedScenario = false;
+    atomic<bool> isSimRunning{false};
 
     RuntimeControlState runtimeControls;
     SimulationControlBridge controlBridge(runtimeControls);
 
     int currentFrame = 0;
 
-    cout << "Awaiting scenario:start websocket message from frontend before simulation begins.\n";
+    cout << "Awaiting scenario:start websocket message from Master before simulation begins.\n";
+
+    FrameBroadcaster* broadcasterPtr = nullptr;
 
     // start WebSocket broadcaster on ws://localhost:8080/frames
     FrameBroadcaster broadcaster(
         8080,
-        [&controlBridge](const string& message) {
-            cout << "[ws] received: " << message << "\n";
+        [&controlBridge, &isSimRunning, &broadcasterPtr](const string& message) {
+            cout << "[ws] received from master: " << message << "\n";
+
+            if (message == "sim:console" || message == "sim:stop") {
+                isSimRunning = false;
+                controlBridge.enqueueMessage("control:set?paused=1");
+                if (broadcasterPtr) broadcasterPtr->notifySimStateChanged();
+                cout << "[sim] master returned to console, simulation stopped\n";
+                return;
+            }
 
             ScenarioSelection selection;
             ostringstream scenarioErrors;
@@ -308,7 +329,18 @@ int main() {
         },
         [&controlBridge]() {
             return encodeControlStateMessage(controlBridge.snapshot());
+        },
+        [&isSimRunning]() {
+            return isSimRunning.load();
+        },
+        [&controlBridge, &isSimRunning, &broadcasterPtr]() {
+            cout << "[auth] Master disconnected -> auto-pausing simulation\n";
+            isSimRunning = false;
+            controlBridge.enqueueMessage("control:set?paused=1");
+            if (broadcasterPtr) broadcasterPtr->notifySimStateChanged();
         });
+
+    broadcasterPtr = &broadcaster;
 
     flatbuffers::FlatBufferBuilder frameBuilder(1024);
 
@@ -353,6 +385,9 @@ int main() {
                     system = loadedSystem;
                     initialSystem = system;
                     hasLoadedScenario = true;
+                    isSimRunning = true;
+                    broadcaster.setScenarioTitle(scenarioTitleFromSelection(*controlUpdate.scenarioStartSelection));
+                    broadcaster.notifySimStateChanged();
                     currentFrame = 0;
 
                     cout << "[scenario] loaded successfully with "

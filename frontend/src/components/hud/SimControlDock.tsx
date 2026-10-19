@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useFrameStore } from '../../state/useFrameStore';
 import styles from './SimControlDock.module.css';
 
 const BASE_SIM_DT = 0.016667;
@@ -38,6 +39,17 @@ export function SimControlDock({
   simDt,
   onSendControlMessage
 }: SimControlDockProps) {
+  const { userRole, hasMaster, masterName, spectatorCount } = useFrameStore((state) => ({
+    userRole: state.userRole,
+    hasMaster: state.hasMaster,
+    masterName: state.masterName,
+    spectatorCount: state.spectatorCount
+  }));
+  const isMaster = userRole === 'master';
+  const effectiveDisabled = controlsDisabled || !isMaster;
+  const lockTitle = !isMaster ? `Controlled by Master (${masterName || 'Master'})` : undefined;
+  const totalUsers = (hasMaster ? 1 : 0) + spectatorCount;
+
   const speedPopoverCloseTimeoutRef = useRef<number | null>(null);
   const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false);
 
@@ -65,7 +77,7 @@ export function SimControlDock({
   }
 
   function handleSimSpeedChange(nextSliderValue: number): void {
-    if (controlsDisabled) {
+    if (effectiveDisabled) {
       return;
     }
 
@@ -76,11 +88,11 @@ export function SimControlDock({
   }
 
   useEffect(() => {
-    if (controlsDisabled) {
+    if (effectiveDisabled) {
       clearSpeedPopoverCloseTimeout();
       setSpeedPopoverOpen(false);
     }
-  }, [controlsDisabled]);
+  }, [effectiveDisabled]);
 
   useEffect(() => {
     return () => {
@@ -90,7 +102,7 @@ export function SimControlDock({
 
   useEffect(() => {
     const handleSpaceToggle = (ev: KeyboardEvent) => {
-      if (ev.defaultPrevented || ev.repeat || controlsDisabled) {
+      if (ev.defaultPrevented || ev.repeat || effectiveDisabled) {
         return;
       }
 
@@ -110,11 +122,11 @@ export function SimControlDock({
     return () => {
       window.removeEventListener('keydown', handleSpaceToggle);
     };
-  }, [controlsDisabled, onSendControlMessage, simPaused]);
+  }, [effectiveDisabled, onSendControlMessage, simPaused]);
 
   useEffect(() => {
     const handleTimeSpeedStep = (ev: KeyboardEvent) => {
-      if (ev.defaultPrevented || ev.repeat || controlsDisabled) {
+      if (ev.defaultPrevented || ev.repeat || effectiveDisabled) {
         return;
       }
 
@@ -139,19 +151,46 @@ export function SimControlDock({
     return () => {
       window.removeEventListener('keydown', handleTimeSpeedStep);
     };
-  }, [controlsDisabled, onSendControlMessage, simSpeedMultiplier]);
+  }, [effectiveDisabled, onSendControlMessage, simSpeedMultiplier]);
 
   return (
     <div className={styles.simControlDock}>
       <div className={styles.simControlFloatingGroup} role="group" aria-label="Simulation controls">
+        <div
+          className={styles.simControlUserBadge}
+          title={hasMaster ? `Master: ${masterName || 'Master'}` : 'No active master'}
+          aria-label={`Users joined: ${totalUsers}. Master: ${hasMaster ? (masterName || 'Master') : 'None'}`}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <path d="M16 3.128a4 4 0 0 1 0 7.744" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <circle cx="9" cy="7" r="4" />
+          </svg>
+          <span className={styles.simControlUserCount}>{totalUsers}</span>
+          <div className={styles.simControlUserTooltip} role="tooltip">
+            {hasMaster ? `Master: ${masterName || 'Master'}` : 'No active master'}
+          </div>
+        </div>
         <button
           className={`${styles.simControlFab} ${simPaused ? styles.isPaused : ''}`.trim()}
           type="button"
           aria-label={simPaused ? 'Resume simulation' : 'Pause simulation'}
-          title={simPaused ? 'Resume simulation' : 'Pause simulation'}
-          disabled={controlsDisabled}
+          title={lockTitle || (simPaused ? 'Resume simulation' : 'Pause simulation')}
+          disabled={effectiveDisabled}
           onClick={() => {
-            if (controlsDisabled) {
+            if (effectiveDisabled) {
               return;
             }
             onSendControlMessage(`control:set?paused=${simPaused ? 0 : 1}`);
@@ -172,10 +211,10 @@ export function SimControlDock({
           className={styles.simControlFab}
           type="button"
           aria-label="Reset simulation"
-          title="Reset simulation"
-          disabled={controlsDisabled}
+          title={lockTitle || 'Reset simulation'}
+          disabled={effectiveDisabled}
           onClick={() => {
-            if (controlsDisabled) {
+            if (effectiveDisabled) {
               return;
             }
             onSendControlMessage('control:reset');
@@ -203,10 +242,10 @@ export function SimControlDock({
             aria-label="Adjust simulation speed"
             aria-haspopup="dialog"
             aria-expanded={speedPopoverOpen}
-            title={`Time speed: ${simSpeedMultiplier.toFixed(2)}x`}
-            disabled={controlsDisabled}
+            title={lockTitle || `Time speed: ${simSpeedMultiplier.toFixed(2)}x`}
+            disabled={effectiveDisabled}
             onClick={() => {
-              if (controlsDisabled) {
+              if (effectiveDisabled) {
                 return;
               }
               clearSpeedPopoverCloseTimeout();

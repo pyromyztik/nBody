@@ -15,6 +15,7 @@ import {
   type StableOrbitFamily,
   validateScenarioSelection
 } from '../../lib/scenarioControl';
+import { useFrameStore } from '../../state/useFrameStore';
 import styles from './LandingPage.module.css';
 
 type ScenarioFormState = {
@@ -25,10 +26,12 @@ type ScenarioFormState = {
   accretionRadiusTouched: boolean;
 };
 
-type LandingPageProps = {
+export type LandingPageProps = {
   formState: ScenarioFormState;
   onFormStateChange: (nextState: ScenarioFormState) => void;
   onSimulate: (selection: ScenarioSelection) => void;
+  onOpenMasterLogin?: () => void;
+  onMasterLogout?: () => void;
 };
 
 type ScenarioDetails = {
@@ -504,7 +507,15 @@ function StableFamilyDropdown({ value, disabled = false, onChange }: StableFamil
   );
 }
 
-export function LandingPage({ formState, onFormStateChange, onSimulate }: LandingPageProps) {
+export function LandingPage({
+  formState,
+  onFormStateChange,
+  onSimulate,
+  onOpenMasterLogin,
+  onMasterLogout
+}: LandingPageProps) {
+  const userRole = useFrameStore((state) => state.userRole);
+
   const selectedScenario = formState.kind;
   const selectedScenarioDetails = SCENARIO_DETAILS_BY_KIND[selectedScenario];
   const scenarioSelection = buildScenarioSelection(formState);
@@ -562,6 +573,13 @@ export function LandingPage({ formState, onFormStateChange, onSimulate }: Landin
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
+    if (userRole !== 'master') {
+      if (onOpenMasterLogin) {
+        onOpenMasterLogin();
+      }
+      return;
+    }
+
     if (!scenarioSelection || validationError !== null) {
       return;
     }
@@ -746,14 +764,55 @@ export function LandingPage({ formState, onFormStateChange, onSimulate }: Landin
               </div>
             </div>
 
-            <button
-              id="simulate"
-              className={styles.simulateButton}
-              type="submit"
-              disabled={!canSimulate}
-            >
-              Simulate
-            </button>
+            <div className={styles.actionRow}>
+              {userRole === 'master' ? (
+                <>
+                  <button
+                    id="simulate"
+                    className={styles.simulateButton}
+                    type="submit"
+                    disabled={!canSimulate}
+                  >
+                    Simulate
+                  </button>
+                  {onMasterLogout && (
+                    <button
+                      className={styles.logoutSquareButton}
+                      type="button"
+                      onClick={onMasterLogout}
+                      title="Log Out as Master"
+                      aria-label="Log Out as Master"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m16 17 5-5-5-5" />
+                        <path d="M21 12H9" />
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      </svg>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button
+                  id="simulate"
+                  className={styles.simulateButton}
+                  type="button"
+                  onClick={onOpenMasterLogin}
+                >
+                  Authenticate as Master to Simulate
+                </button>
+              )}
+            </div>
           </article>
         </form>
       </div>

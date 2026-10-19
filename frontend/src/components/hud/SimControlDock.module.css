@@ -14,6 +14,68 @@
   gap: 8px;
 }
 
+.simControlUserBadge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(20, 22, 32, 0.7);
+  backdrop-filter: blur(6px);
+  color: #d7defd;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: default;
+  user-select: none;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.simControlUserBadge:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #f4c069;
+}
+
+.simControlUserBadge svg {
+  width: 16px;
+  height: 16px;
+  color: #93c5fd;
+  flex-shrink: 0;
+}
+
+.simControlUserCount {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.simControlUserTooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  white-space: nowrap;
+  background: rgba(14, 18, 28, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e2e8f0;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 150ms ease, transform 150ms ease;
+  z-index: 10;
+}
+
+.simControlUserBadge:hover .simControlUserTooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .simControlFab {
   display: inline-flex;
   align-items: center;

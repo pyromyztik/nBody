@@ -98,14 +98,14 @@ target_link_libraries(uWebSockets INTERFACE uSockets ZLIB::ZLIB)
 
 # Executable target
 add_executable(nbody_ws
-    backend/main.cpp
-    backend/velocityVerlet.cpp
-    backend/barnesHutTree.cpp
-    backend/scenarios.cpp
+    src/main.cpp
+    src/velocityVerlet.cpp
+    src/barnesHutTree.cpp
+    src/scenarios.cpp
 )
 
 target_include_directories(nbody_ws PRIVATE
-    backend
+    src
     include
 )
 

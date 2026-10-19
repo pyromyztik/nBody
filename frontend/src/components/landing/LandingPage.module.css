@@ -538,9 +538,18 @@
   font-size: 0.84rem;
 }
 
-.simulateButton {
+.actionRow {
   margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
+}
+
+.simulateButton {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
   border: none;
   border-radius: 8px;
   background: #daa453;
@@ -548,8 +557,11 @@
   font-weight: 700;
   letter-spacing: 0.03em;
   font-size: 0.92rem;
-  padding: 10px 12px;
+  padding: 0 16px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
 }
 .simulateButton:hover {
@@ -560,6 +572,33 @@
 .simulateButton:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+.logoutSquareButton {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c7cfed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 140ms ease, filter 140ms ease, background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.logoutSquareButton:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  transform: translateY(-1px);
+}
+
+.logoutSquareButton svg {
+  width: 20px;
+  height: 20px;
 }
 
 @keyframes cardReveal {
@@ -680,3 +719,4 @@
     animation: none;
   }
 }
+
