@@ -56,17 +56,30 @@ type SimulationLoadingOverlayProps = {
   onBackToLanding: () => void;
 };
 
-const SIMULATION_PATH = '/sim';
+const getBase = (): string => {
+  const base = import.meta.env.BASE_URL || '/';
+  return base.endsWith('/') ? base : `${base}/`;
+};
+
+const getSimulationPath = (): string => `${getBase()}sim`;
+const getLandingPath = (): string => getBase();
 
 function routeFromPathname(pathname: string): AppRoute {
-  if (pathname === SIMULATION_PATH) {
+  const simPath = getSimulationPath().replace(/\/+$/, '');
+  const cleanPath = pathname.replace(/\/+$/, '');
+
+  if (cleanPath === simPath || cleanPath.endsWith('/sim')) {
     return 'simulation';
   }
   return 'landing';
 }
 
 function pathForRoute(route: AppRoute): string {
-  return route === 'simulation' ? SIMULATION_PATH : '/';
+  return route === 'simulation' ? getSimulationPath() : getLandingPath();
+}
+
+function resolveWakeUrl(): string | undefined {
+  return import.meta.env.VITE_WAKE_URL || undefined;
 }
 
 function getScenarioTitle(selection: ScenarioSelection | null): string {
@@ -439,7 +452,7 @@ export default function App() {
 
   // Fast standby probe on initial mount if wake URL is configured
   useEffect(() => {
-    const wakeUrl = import.meta.env.VITE_WAKE_URL;
+    const wakeUrl = resolveWakeUrl();
     if (!wakeUrl || status === 'connected') return;
 
     let active = true;
@@ -464,7 +477,7 @@ export default function App() {
   }, []);
 
   const wakeServer = useCallback(async () => {
-    const wakeUrl = import.meta.env.VITE_WAKE_URL;
+    const wakeUrl = resolveWakeUrl();
     if (!wakeUrl) return;
     setIsWaking(true);
     setWakeStatusMessage('Requesting node boot...');
@@ -658,7 +671,7 @@ export default function App() {
   }
 
   if (isWaking || ((status === 'disconnected' || status === 'error') && route === 'landing')) {
-    const hasWakeUrl = Boolean(import.meta.env.VITE_WAKE_URL);
+    const hasWakeUrl = Boolean(resolveWakeUrl());
 
     return (
       <div className={appStyles.serverFullShell} role="alert" aria-live="assertive">

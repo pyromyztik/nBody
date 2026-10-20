@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node ./node_modules/vite/bin/vite.js",
     "build": "node ./node_modules/vite/bin/vite.js build",
+    "postbuild": "node ./scripts/postbuild.js",
     "preview": "node ./node_modules/vite/bin/vite.js preview",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit"
   },

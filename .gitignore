@@ -80,6 +80,8 @@ obj/
 .env.*
 .env*.local
 *.env
+!.env.example
+!frontend/.env.example
 .terraform/
 
 ### # Dependency Folders

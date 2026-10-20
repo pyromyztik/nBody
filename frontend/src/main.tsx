@@ -62,7 +62,7 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
             <button
               type="button"
               onClick={() => {
-                window.location.href = '/';
+                window.location.href = import.meta.env.BASE_URL || '/';
               }}
               style={{
                 padding: '10px 24px',
@@ -92,4 +92,3 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     </RootErrorBoundary>
   </React.StrictMode>
 );
-
