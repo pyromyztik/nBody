@@ -156,7 +156,7 @@ function SimulationPage({
       simDt: state.simDt,
       hasSimControlSnapshot: state.hasSimControlSnapshot,
       bodyCount: state.bodyCount,
-      hasFirstFrame: state.positions !== null && state.bodyCount > 0 && !state.isAwaitingNewScenario,
+      hasFirstFrame: state.positions !== null && state.bodyCount > 0,
       isAwaitingNewScenario: state.isAwaitingNewScenario,
       userRole: state.userRole,
       hasMaster: state.hasMaster,
@@ -217,6 +217,7 @@ function SimulationPage({
     if (sent) {
       scenarioStartSentRef.current = true;
       setScenarioStartDispatched(true);
+      socketControls.sendText('control:set?paused=0');
     }
   }, [scenarioStartMessage, status, isMaster, socketControls]);
 
@@ -258,7 +259,7 @@ function SimulationPage({
     loadingStatusLabel = 'Scenario Startup';
   }
 
-  const showLoadingOverlay = !hasFirstFrame || (!isMaster && !isSimRunning);
+  const showLoadingOverlay = !hasFirstFrame || isAwaitingNewScenario || (!isMaster && !isSimRunning);
   const showPausedVignette = simPaused && !showLoadingOverlay;
 
   useEffect(() => {

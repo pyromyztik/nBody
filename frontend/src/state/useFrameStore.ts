@@ -161,9 +161,11 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   }) => {
     const prev = get();
 
-    // If waiting for a new scenario to load on the backend, drop any stale frame from the previous scenario
+    // If waiting for a new scenario to load on the backend, drop stale high-frame packets from the previous scenario
     if (prev.isAwaitingNewScenario) {
-      if (frame !== 0 || (prev.expectedBodyCount > 0 && bodyCount !== prev.expectedBodyCount)) {
+      const isFreshStart = frame < 10;
+      const isExpectedMatch = prev.expectedBodyCount > 0 && bodyCount === prev.expectedBodyCount && frame < 30;
+      if (!isFreshStart && !isExpectedMatch) {
         return;
       }
     }
@@ -264,7 +266,10 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
         velocityFilterInitialized = true;
       }
     } else {
-      velocities.fill(0);
+      // Preserve existing velocities if already initialized to prevent bodies from violently flashing dark red/black
+      if (!velocityFilterInitialized || velocities.length !== valueCount) {
+        velocities.fill(0);
+      }
       resetPositionHistory();
     }
 

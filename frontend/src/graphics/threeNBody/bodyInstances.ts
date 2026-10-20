@@ -151,7 +151,7 @@ export function createBodyInstancesRenderer(
         if (useStableOrbitTheme) {
           randomIndexedColor(i, tmpColor, stableColorSeed);
         } else {
-          const t = clamp01((speeds[i] - speedMin) / speedSpan);
+          const t = speedSpan > 1e-5 ? clamp01((speeds[i] - speedMin) / speedSpan) : 0.5;
           turboColor(t, tmpColor);
         }
         const b = i * 3;

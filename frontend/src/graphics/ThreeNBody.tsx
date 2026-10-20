@@ -337,6 +337,8 @@ export const ThreeNBody = React.memo(function ThreeNBody({
           vectorOverlays.clear('velocity');
           vectorOverlays.clear('acceleration');
         }
+        cameraRig.update(dt);
+        scene.render();
         return;
       }
 
@@ -409,15 +411,17 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         );
         const speedSpan = Math.max(speedMax - speedMin, 1e-6);
 
-        if (isResetOrRewind || latestSpeedSpan <= 1e-6 || lastFrame < 0) {
-          latestSpeedMin = speedMin;
-          latestSpeedSpan = speedSpan;
-        } else {
-          // Smooth the color palette normalization ranges across ~250ms
-          const spanAlpha = Math.min(1.0, Math.max(0.05, frameIntervalMs / 250));
-          const invSpanAlpha = 1 - spanAlpha;
-          latestSpeedMin = latestSpeedMin * invSpanAlpha + speedMin * spanAlpha;
-          latestSpeedSpan = latestSpeedSpan * invSpanAlpha + speedSpan * spanAlpha;
+        if (speedSpan > 1e-6) {
+          if (isResetOrRewind || latestSpeedSpan <= 1e-6 || lastFrame < 0) {
+            latestSpeedMin = speedMin;
+            latestSpeedSpan = speedSpan;
+          } else {
+            // Smooth the color palette normalization ranges across ~250ms
+            const spanAlpha = Math.min(1.0, Math.max(0.05, frameIntervalMs / 250));
+            const invSpanAlpha = 1 - spanAlpha;
+            latestSpeedMin = latestSpeedMin * invSpanAlpha + speedMin * spanAlpha;
+            latestSpeedSpan = latestSpeedSpan * invSpanAlpha + speedSpan * spanAlpha;
+          }
         }
 
         if (showAccelerationVectors) {

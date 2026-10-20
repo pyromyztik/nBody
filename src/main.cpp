@@ -612,8 +612,16 @@ int main(int argc, char* argv[]) {
 
                 if (!loadSelectedScenario(loadedSystem, *controlUpdate.scenarioStartSelection, cout)) {
                     cout << "[scenario] failed to load requested scenario\n";
+                    hasLoadedScenario = false;
+                    isSimRunning = false;
+                    broadcaster.notifySimStateChanged();
+                    broadcaster.broadcastText("auth:error?reason=" + nbody_auth::urlEncode("Failed to generate or load scenario"));
                 } else if (loadedSystem.size() == 0) {
                     cout << "[scenario] requested scenario loaded zero bodies\n";
+                    hasLoadedScenario = false;
+                    isSimRunning = false;
+                    broadcaster.notifySimStateChanged();
+                    broadcaster.broadcastText("auth:error?reason=" + nbody_auth::urlEncode("Scenario generated zero bodies"));
                 } else {
                     initializeForces(loadedSystem);
 
