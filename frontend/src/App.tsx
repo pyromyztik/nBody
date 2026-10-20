@@ -480,14 +480,12 @@ export default function App() {
     const wakeUrl = resolveWakeUrl();
     if (!wakeUrl) return;
     setIsWaking(true);
-    setWakeStatusMessage('Requesting node boot...');
+    setWakeStatusMessage('Starting simulation node. Connecting automatically once online...');
 
     try {
       await fetch(wakeUrl, { method: 'POST', mode: 'cors' });
-      setWakeStatusMessage('Boot signal acknowledged. Starting simulation node...');
     } catch (err) {
       console.warn('Wakeup request dispatched:', err);
-      setWakeStatusMessage('Boot signal dispatched. Waiting for cluster network...');
     }
   }, []);
 
@@ -676,11 +674,7 @@ export default function App() {
     return (
       <div className={appStyles.serverFullShell} role="alert" aria-live="assertive">
         <div className={appStyles.serverFullCard}>
-          <div
-            className={appStyles.serverFullIconWrapper}
-            aria-hidden="true"
-            style={hasWakeUrl ? { borderColor: 'rgba(56, 189, 248, 0.4)', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8' } : undefined}
-          >
+          <div className={appStyles.serverFullIconWrapper} aria-hidden="true">
             {isWaking ? (
               <div className={appStyles.loadingSpinner} style={{ width: 32, height: 32, borderWidth: 3 }} />
             ) : (
@@ -696,33 +690,31 @@ export default function App() {
                 strokeLinejoin="round"
               >
                 <path d="M7 2h13a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5" />
-                <path d="M10 10 2.5 2.5" />
-                <path d="M22 17v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h1" />
-                <path d="M2 14h12" />
-                <path d="M20 14h2" />
-                <path d="M22 22 2 2" />
+                <path d="M10 10 2.5 2.5C2 2 2 2.5 2 5v3a2 2 0 0 0 2 2h6z" />
+                <path d="M22 17v-1a2 2 0 0 0-2-2h-1" />
+                <path d="M4 14a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h16.5l1-.5.5.5-8-8H4z" />
                 <path d="M6 18h.01" />
-                <path d="M7 6h.01" />
+                <path d="m2 2 20 20" />
               </svg>
             )}
           </div>
-          <h1 className={appStyles.serverFullTitle} style={hasWakeUrl ? { color: '#38bdf8' } : undefined}>
+          <h1 className={appStyles.serverFullTitle}>
             {isWaking ? 'Booting Simulation Node' : (hasWakeUrl ? 'Simulation Node in Standby' : 'Backend Disconnected')}
           </h1>
           <p className={appStyles.serverFullDescription}>
             {isWaking
-              ? (wakeStatusMessage || 'Booting dedicated AWS compute node...')
+              ? (wakeStatusMessage || 'Starting dedicated compute node. Connecting automatically once online...')
               : (hasWakeUrl
                 ? 'The simulation node is currently in standby to conserve AWS compute credits.'
                 : 'The simulation backend is currently offline or unreachable.')}
           </p>
-          <p className={appStyles.serverFullSubtext}>
-            {isWaking
-              ? 'Boot signal sent. Connecting automatically once online...'
-              : (hasWakeUrl
+          {!isWaking && (
+            <p className={appStyles.serverFullSubtext}>
+              {hasWakeUrl
                 ? 'Click below to spin up the dedicated compute node.'
-                : <>Please verify that the backend server is running (<code style={{ color: '#93c5fd' }}>./build/nbody_ws.exe</code>) to use the simulation.</>)}
-          </p>
+                : <>Please verify that the backend server is running (<code style={{ color: '#93c5fd' }}>./build/nbody_ws.exe</code>) to use the simulation.</>}
+            </p>
+          )}
           {hasWakeUrl ? (
             <button
               className={appStyles.serverFullWakeBtn}
