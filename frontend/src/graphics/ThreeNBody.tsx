@@ -327,6 +327,19 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         lastFrameTime
       } = state;
 
+      if (!positions || bodyCount === 0) {
+        if (lastBodyCount > 0) {
+          displayPositions = new Float32Array(0);
+          lastBodyCount = 0;
+          bodyInstances.mesh.setEnabled(false);
+          bodyInstances.pointMesh.setEnabled(false);
+          orbitTrails.clear();
+          vectorOverlays.clear('velocity');
+          vectorOverlays.clear('acceleration');
+        }
+        return;
+      }
+
       const hasFreshFrameSample =
         frame !== lastFrame || lastFrameTime > previousFrameSampleTime;
 
@@ -345,6 +358,9 @@ export const ThreeNBody = React.memo(function ThreeNBody({
 
         if (shouldSnapDisplay) {
           snapDisplayPositions(positions);
+          orbitTrails.clear();
+          vectorOverlays.clear('velocity');
+          vectorOverlays.clear('acceleration');
         } else {
           beginDisplayInterpolation(positions, frameIntervalMs, now);
         }

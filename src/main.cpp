@@ -493,7 +493,7 @@ int main(int argc, char* argv[]) {
     size_t targetFps = 60; // dynamic target FPS that scales with body count
     ParticleSystem system;
     ParticleSystem initialSystem;
-    bool hasLoadedScenario = false;
+    atomic<bool> hasLoadedScenario{false};
     atomic<bool> isSimRunning{false};
 
     RuntimeControlState runtimeControls;
@@ -523,13 +523,17 @@ int main(int argc, char* argv[]) {
         8080,
         &quotaManager,
         locallyHosted,
-        [&controlBridge, &isSimRunning, &broadcasterPtr, &quotaManager, locallyHosted](const string& message) {
+        [&controlBridge, &isSimRunning, &hasLoadedScenario, &broadcasterPtr, &quotaManager, locallyHosted](const string& message) {
             cout << "[ws] received command: " << message << "\n";
 
             if (message == "sim:console" || message == "sim:stop") {
                 isSimRunning = false;
+                hasLoadedScenario = false;
                 controlBridge.enqueueMessage("control:set?paused=1");
-                if (broadcasterPtr) broadcasterPtr->notifySimStateChanged();
+                if (broadcasterPtr) {
+                    broadcasterPtr->clearFrames();
+                    broadcasterPtr->notifySimStateChanged();
+                }
                 cout << "[sim] returned to console, simulation stopped\n";
                 return;
             }
@@ -545,6 +549,12 @@ int main(int argc, char* argv[]) {
             ScenarioSelection selection;
             ostringstream scenarioErrors;
             if (parseScenarioStartMessage(message, selection, &scenarioErrors)) {
+                isSimRunning = false;
+                hasLoadedScenario = false;
+                if (broadcasterPtr) {
+                    broadcasterPtr->clearFrames();
+                    broadcasterPtr->notifySimStateChanged();
+                }
                 controlBridge.enqueueScenarioStart(selection);
                 cout << "[scenario] queued scenario:start request\n";
                 return;
@@ -617,10 +627,11 @@ int main(int argc, char* argv[]) {
                     initialSystem = system;
                     hasLoadedScenario = true;
                     isSimRunning = true;
-                    broadcaster.setScenarioTitle(scenarioTitleFromSelection(*controlUpdate.scenarioStartSelection));
-                    broadcaster.notifySimStateChanged();
                     currentFrame = 0;
                     bboxState.reset();
+                    broadcaster.clearFrames();
+                    broadcaster.setScenarioTitle(scenarioTitleFromSelection(*controlUpdate.scenarioStartSelection));
+                    broadcaster.notifySimStateChanged();
 
                     targetFps = calculateAdaptiveTargetFps(system.size());
                     targetFrameDuration = chrono::duration_cast<chrono::steady_clock::duration>(

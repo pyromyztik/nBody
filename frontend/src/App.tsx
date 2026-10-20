@@ -141,6 +141,7 @@ function SimulationPage({
     hasSimControlSnapshot,
     bodyCount,
     hasFirstFrame,
+    isAwaitingNewScenario,
     userRole,
     hasMaster,
     masterName,
@@ -155,7 +156,8 @@ function SimulationPage({
       simDt: state.simDt,
       hasSimControlSnapshot: state.hasSimControlSnapshot,
       bodyCount: state.bodyCount,
-      hasFirstFrame: state.positions !== null && state.bodyCount > 0,
+      hasFirstFrame: state.positions !== null && state.bodyCount > 0 && !state.isAwaitingNewScenario,
+      isAwaitingNewScenario: state.isAwaitingNewScenario,
       userRole: state.userRole,
       hasMaster: state.hasMaster,
       masterName: state.masterName,
@@ -215,7 +217,6 @@ function SimulationPage({
     if (sent) {
       scenarioStartSentRef.current = true;
       setScenarioStartDispatched(true);
-      socketControls.sendText('control:set?paused=0');
     }
   }, [scenarioStartMessage, status, isMaster, socketControls]);
 
@@ -251,11 +252,7 @@ function SimulationPage({
     loadingTitle = 'Preparing Scenario Request';
     loadingDetail = 'Sending selected scenario parameters to the backend.';
     loadingStatusLabel = 'Request Setup';
-  } else if (status === 'connected' && scenarioStartDispatched && !hasSimControlSnapshot) {
-    loadingTitle = 'Synchronizing Controls';
-    loadingDetail = 'Waiting for simulation control defaults from the backend.';
-    loadingStatusLabel = 'Control Sync';
-  } else if (status === 'connected' && scenarioStartDispatched) {
+  } else if (status === 'connected') {
     loadingTitle = 'Loading Scenario';
     loadingDetail = 'Backend is generating and loading initial bodies. This may take a few seconds.';
     loadingStatusLabel = 'Scenario Startup';
@@ -526,6 +523,7 @@ export default function App() {
   const handleMasterLogin = useCallback((password: string, name: string) => {
     sessionStorage.setItem('nbody_master_pwd', password);
     sessionStorage.setItem('nbody_master_name', name);
+    useFrameStore.getState().setUserRole('pending');
     return socketControls?.loginAsMaster(password, name) ?? false;
   }, [socketControls]);
 
@@ -561,37 +559,38 @@ export default function App() {
   }, []);
 
   // Auto-routing for clients/spectators:
-  // "as a client, i should simply be taken to whatever is currently being simulated immediately rather than seeing the console landing page,
-  // and only when there is no master should I be put in the console landing page."
+  // As a spectator/client, only navigate to live simulation if a simulation is actually active.
+  // When no simulation is running or when operator is in console, stay on console landing page.
   useEffect(() => {
-    if (isLocallyHosted || userRole === 'master') {
-      return; // Master or locally-hosted operator freely navigates between landing and simulation
+    const hasMasterCredentials = Boolean(sessionStorage.getItem('nbody_master_pwd'));
+    if (isLocallyHosted || userRole === 'master' || userRole === 'pending' || hasMasterCredentials) {
+      return; // Master or authenticating operator freely navigates between landing and simulation
     }
 
-    if (hasMaster) {
-      // Master is active: client immediately spectates whatever is being simulated!
+    if (hasMaster && isSimRunning) {
+      // Live simulation is active: spectator immediately views whatever is being simulated!
       if (route !== 'simulation' || !isSpectating) {
         setIsSpectating(true);
         setActiveScenarioSelection(null);
         navigateToRoute('simulation');
       }
     } else {
-      // No master is active: client is put in the console landing page!
-      if (route !== 'landing' || isSpectating) {
+      // No active simulation or no master: spectator is put in the console landing page!
+      if (route !== 'landing' && isSpectating) {
         setIsSpectating(false);
         setActiveScenarioSelection(null);
         navigateToRoute('landing');
       }
     }
-  }, [userRole, hasMaster, route, isSpectating, navigateToRoute]);
+  }, [userRole, hasMaster, isSimRunning, route, isSpectating, navigateToRoute]);
 
-  // Auto-redirect if user reloaded or navigated to /sim but there is no running simulation
+  // Auto-redirect if user reloaded or navigated to /sim but there is no running simulation and no active selection
   useEffect(() => {
     if (!hasReceivedAuthState) return;
-    if (route === 'simulation' && !isSimRunning && activeScenarioSelection === null && !hasMaster) {
+    if (route === 'simulation' && !isSimRunning && activeScenarioSelection === null && userRole !== 'master' && userRole !== 'pending') {
       navigateToRoute('landing', true);
     }
-  }, [hasReceivedAuthState, route, isSimRunning, activeScenarioSelection, hasMaster, navigateToRoute]);
+  }, [hasReceivedAuthState, route, isSimRunning, activeScenarioSelection, userRole, navigateToRoute]);
 
   const activeScenarioStartMessage = useMemo(() => {
     if (activeScenarioSelection === null) {
@@ -604,8 +603,18 @@ export default function App() {
     setActiveScenarioSelection(selection);
     setIsSpectating(false);
 
+    let expectedBodies = 0;
+    if (selection.kind === 'galaxy') expectedBodies = 30000;
+    else if (selection.kind === 'galaxy-10k') expectedBodies = 10000;
+    else if (selection.kind === 'galaxy-collision') expectedBodies = 30000;
+    else if (selection.kind === 'galaxy-collision-15k') expectedBodies = 15000;
+    else if (selection.kind === 'stable-orbits' || selection.kind === 'accretion-disk') {
+      expectedBodies = selection.bodyCount;
+    }
+
     const frameStore = useFrameStore.getState();
     frameStore.reset();
+    frameStore.setAwaitingNewScenario(true, expectedBodies);
     if (selection.kind === 'stable-orbits') {
       frameStore.setShowOrbitTrails(true);
     }
@@ -615,11 +624,12 @@ export default function App() {
   }, [navigateToRoute]);
 
   const handleBackToLanding = useCallback(() => {
+    socketControls?.sendText('sim:console');
     useFrameStore.getState().reset();
     setActiveScenarioSelection(null);
     setIsSpectating(false);
     navigateToRoute('landing');
-  }, [navigateToRoute]);
+  }, [socketControls, navigateToRoute]);
 
   const showSimulationPage =
     route === 'simulation' && (isSpectating || activeScenarioSelection !== null);

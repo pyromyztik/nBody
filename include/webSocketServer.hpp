@@ -474,6 +474,11 @@ public:
         notifySimStateChanged();
     }
 
+    void clearFrames() {
+        std::lock_guard<std::mutex> lock(frameMutex_);
+        latestFrame_.reset();
+    }
+
     void broadcast(const std::shared_ptr<std::vector<uint8_t>>& payload) {
         if (!payload || !loop_) return;
 

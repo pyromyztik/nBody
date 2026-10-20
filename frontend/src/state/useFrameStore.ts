@@ -56,6 +56,8 @@ export type FrameState = {
   isLoginLocked: boolean;
   remainingLoginAttempts: number;
   isLocallyHosted: boolean;
+  isAwaitingNewScenario: boolean;
+  expectedBodyCount: number;
 };
 
 export type FrameActions = {
@@ -74,6 +76,7 @@ export type FrameActions = {
   setLastAuthError: (error: string | null) => void;
   setIsServerFull: (isFull: boolean) => void;
   setActiveScenarioTitle: (title: string) => void;
+  setAwaitingNewScenario: (awaiting: boolean, expectedBodies?: number) => void;
   reset: () => void;
 };
 
@@ -123,7 +126,7 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   simDt: DEFAULT_SIM_CONTROL_STATE.dt,
   simDefaultDt: DEFAULT_SIM_CONTROL_STATE.defaultDt,
   hasSimControlSnapshot: false,
-  userRole: 'spectator',
+  userRole: (typeof window !== 'undefined' && Boolean(sessionStorage.getItem('nbody_master_pwd'))) ? 'pending' : 'spectator',
   hasMaster: false,
   masterName: '',
   spectatorCount: 0,
@@ -140,6 +143,8 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   isLoginLocked: false,
   remainingLoginAttempts: 5,
   isLocallyHosted: false,
+  isAwaitingNewScenario: false,
+  expectedBodyCount: 0,
   pushFrame: ({
     frame,
     bodyCount,
@@ -155,6 +160,13 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
     bytes
   }) => {
     const prev = get();
+
+    // If waiting for a new scenario to load on the backend, drop any stale frame from the previous scenario
+    if (prev.isAwaitingNewScenario) {
+      if (frame !== 0 || (prev.expectedBodyCount > 0 && bodyCount !== prev.expectedBodyCount)) {
+        return;
+      }
+    }
     fpsWindowFrameCount += 1;
     const windowElapsed = receivedAt - fpsWindowStart;
     if (windowElapsed >= 500) {
@@ -267,7 +279,8 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
       simDt: activeSimDt,
       fps,
       lastFrameTime: receivedAt,
-      totalBytes: prev.totalBytes + bytes
+      totalBytes: prev.totalBytes + bytes,
+      isAwaitingNewScenario: false
     });
   },
   setStatus: (status: ConnectionStatus) =>
@@ -292,7 +305,9 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
         simPaused: DEFAULT_SIM_CONTROL_STATE.paused,
         simDt: DEFAULT_SIM_CONTROL_STATE.dt,
         simDefaultDt: DEFAULT_SIM_CONTROL_STATE.defaultDt,
-        hasSimControlSnapshot: false
+        hasSimControlSnapshot: false,
+        isAwaitingNewScenario: false,
+        expectedBodyCount: 0
       };
     }),
   setShowVelocityVectors: (show: boolean) => set({ showVelocityVectors: show }),
@@ -316,7 +331,11 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   setAuthState: (partial: Partial<AuthState>) =>
     set((state) => {
       const isLocallyHosted = partial.locallyHosted ?? state.isLocallyHosted;
-      const userRole = isLocallyHosted ? 'master' : (partial.hasMaster && state.userRole !== 'master' ? 'spectator' : state.userRole);
+      const userRole = isLocallyHosted
+        ? 'master'
+        : (state.userRole === 'master' || state.userRole === 'pending'
+            ? state.userRole
+            : (partial.hasMaster ? 'spectator' : 'spectator'));
       return {
         ...state,
         ...partial,
@@ -329,6 +348,13 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
   setLastAuthError: (error: string | null) => set({ lastAuthError: error }),
   setIsServerFull: (isServerFull: boolean) => set({ isServerFull }),
   setActiveScenarioTitle: (activeScenarioTitle: string) => set({ activeScenarioTitle }),
+  setAwaitingNewScenario: (awaiting: boolean, expectedBodies = 0) =>
+    set({
+      isAwaitingNewScenario: awaiting,
+      expectedBodyCount: expectedBodies,
+      positions: awaiting ? null : get().positions,
+      bodyCount: awaiting ? 0 : get().bodyCount
+    }),
   reset: () => {
     resetPositionHistory();
     set((state) => ({
@@ -349,7 +375,9 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
       simPaused: DEFAULT_SIM_CONTROL_STATE.paused,
       simDt: DEFAULT_SIM_CONTROL_STATE.dt,
       simDefaultDt: DEFAULT_SIM_CONTROL_STATE.defaultDt,
-      hasSimControlSnapshot: false
+      hasSimControlSnapshot: false,
+      isAwaitingNewScenario: false,
+      expectedBodyCount: 0
     }));
   }
 }));

@@ -347,10 +347,26 @@ namespace {
         return code == 127 || code == 9009;
     }
 
+    static string s_cachedPythonLauncher;
+
     bool runPythonScript(const string& scriptPath,
                          const vector<string>& args,
                          ostream& output) {
-        const vector<string> launchers = {"python3", "python", "py -3"};
+        #if defined(_WIN32)
+        const vector<string> defaultLaunchers = {"python", "py -3", "python3"};
+        #else
+        const vector<string> defaultLaunchers = {"python3", "python", "py -3"};
+        #endif
+
+        vector<string> launchers;
+        if (!s_cachedPythonLauncher.empty()) {
+            launchers.push_back(s_cachedPythonLauncher);
+        }
+        for (const auto& l : defaultLaunchers) {
+            if (l != s_cachedPythonLauncher) {
+                launchers.push_back(l);
+            }
+        }
 
         for (size_t i = 0; i < launchers.size(); ++i) {
             ostringstream command;
@@ -360,8 +376,10 @@ namespace {
 
             output << "Executing: " << command.str() << "\n";
             const int exitCode = system(command.str().c_str());
-            if (exitCode == 0)
+            if (exitCode == 0) {
+                s_cachedPythonLauncher = launchers[i];
                 return true;
+            }
 
             if (!isCommandNotFoundExitCode(exitCode)) {
                 output << "Generator failed with exit code " << exitCode << ".\n";
