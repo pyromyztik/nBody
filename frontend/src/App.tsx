@@ -445,6 +445,8 @@ export default function App() {
     shallow
   );
 
+  const isMaster = userRole === 'master' || isLocallyHosted;
+
   const [isWaking, setIsWaking] = useState(false);
   const [wakeStatusMessage, setWakeStatusMessage] = useState<string | null>(null);
 
