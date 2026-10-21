@@ -226,7 +226,7 @@ public:
                 .compression = uWS::DISABLED,
                 .maxPayloadLength = 64 * 1024,
                 .idleTimeout = 120,
-                .maxBackpressure = 64 * 1024 * 1024,
+                .maxBackpressure = 512 * 1024,
                 .open = [this, sendAuthState, broadcastAuthState](auto* ws) {
                     auto* data = ws->getUserData();
                     data->isMaster = false;

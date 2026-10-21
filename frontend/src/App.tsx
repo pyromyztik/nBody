@@ -448,32 +448,6 @@ export default function App() {
   const [isWaking, setIsWaking] = useState(false);
   const [wakeStatusMessage, setWakeStatusMessage] = useState<string | null>(null);
 
-  // Fast standby probe on initial mount if wake URL is configured
-  useEffect(() => {
-    const wakeUrl = resolveWakeUrl();
-    if (!wakeUrl || status === 'connected') return;
-
-    let active = true;
-    fetch(wakeUrl, { method: 'GET', mode: 'cors' })
-      .then((res) => res.json())
-      .then((data: { status?: string; state?: string }) => {
-        if (!active) return;
-        if (data.status === 'stopped' || data.state === 'stopped') {
-          // Dedicated instance is stopped: immediately update status so standby screen renders without delay
-          if (useFrameStore.getState().status !== 'connected') {
-            useFrameStore.getState().setStatus('disconnected');
-          }
-        }
-      })
-      .catch(() => {
-        // Ignore fetch errors, WebSocket 3s timeout handles fallback
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const wakeServer = useCallback(async () => {
     const wakeUrl = resolveWakeUrl();
     if (!wakeUrl) return;
@@ -538,6 +512,7 @@ export default function App() {
     sessionStorage.removeItem('nbody_master_name');
     socketControls?.sendText('sim:console');
     socketControls?.logoutMaster();
+    useFrameStore.getState().setAuthState({ hasMaster: false, isSimRunning: false });
     useFrameStore.getState().setUserRole('spectator');
     useFrameStore.getState().reset();
     setActiveScenarioSelection(null);
@@ -565,30 +540,73 @@ export default function App() {
   }, []);
 
   // Auto-routing for clients/spectators:
-  // As a spectator/client, only navigate to live simulation if a simulation is actually active.
-  // When no simulation is running or when operator is in console, stay on console landing page.
+  // When a spectator is viewing simulation and the simulation stops, return to landing.
+  // Spectators on the landing page are never automatically forced into simulation without explicit action.
   useEffect(() => {
     const hasMasterCredentials = Boolean(sessionStorage.getItem('nbody_master_pwd'));
     if (isLocallyHosted || userRole === 'master' || userRole === 'pending' || hasMasterCredentials) {
-      return; // Master or authenticating operator freely navigates between landing and simulation
+      return;
     }
 
-    if (hasMaster && isSimRunning) {
-      // Live simulation is active: spectator immediately views whatever is being simulated!
-      if (route !== 'simulation' || !isSpectating) {
-        setIsSpectating(true);
-        setActiveScenarioSelection(null);
-        navigateToRoute('simulation');
-      }
-    } else {
-      // No active simulation or no master: spectator is put in the console landing page!
-      if (route !== 'landing' && isSpectating) {
+    if (route === 'simulation') {
+      if (!isSimRunning || !hasMaster) {
         setIsSpectating(false);
         setActiveScenarioSelection(null);
-        navigateToRoute('landing');
+        navigateToRoute('landing', true);
       }
     }
   }, [userRole, hasMaster, isSimRunning, route, isSpectating, navigateToRoute]);
+
+  // Ensure no simulation is running when on the scenario selection (landing) page
+  useEffect(() => {
+    if (route === 'landing') {
+      if (isMaster) {
+        socketControls?.sendText('sim:console');
+      }
+      useFrameStore.getState().setAuthState({ isSimRunning: false });
+      useFrameStore.getState().setSimControlSnapshot({
+        paused: true,
+        dt: 0.016667,
+        defaultDt: 0.016667
+      });
+    }
+  }, [route, isMaster, socketControls]);
+
+  // 5-minute inactivity termination on the landing page
+  useEffect(() => {
+    if (route !== 'landing' || status !== 'connected') {
+      return;
+    }
+
+    const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    let idleTimer: number | null = null;
+
+    const resetIdleTimer = () => {
+      if (idleTimer !== null) {
+        window.clearTimeout(idleTimer);
+      }
+      idleTimer = window.setTimeout(() => {
+        console.info('[idle] Landing page inactive for 5 minutes. Terminating session.');
+        socketControls?.sendText('sim:console');
+        if (isMaster) {
+          socketControls?.logoutMaster();
+        }
+        socketControls?.close();
+        useFrameStore.getState().setStatus('disconnected');
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    activityEvents.forEach((ev) => window.addEventListener(ev, resetIdleTimer, { passive: true }));
+    resetIdleTimer();
+
+    return () => {
+      if (idleTimer !== null) {
+        window.clearTimeout(idleTimer);
+      }
+      activityEvents.forEach((ev) => window.removeEventListener(ev, resetIdleTimer));
+    };
+  }, [route, status, isMaster, socketControls]);
 
   // Auto-redirect if user reloaded or navigated to /sim but there is no running simulation and no active selection
   useEffect(() => {

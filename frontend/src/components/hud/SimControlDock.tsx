@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useFrameStore } from '../../state/useFrameStore';
 import styles from './SimControlDock.module.css';
 
@@ -142,6 +142,20 @@ export function SimControlDock({
     }, 350);
   }
 
+  const togglePause = useCallback(() => {
+    if (effectiveDisabled) {
+      return;
+    }
+    const nextPaused = !simPaused;
+    // Optimistically update store so UI, HUD button, and 3D renderer react instantly
+    useFrameStore.getState().setSimControlSnapshot({
+      paused: nextPaused,
+      dt: simDt,
+      defaultDt: useFrameStore.getState().simDefaultDt
+    });
+    onSendControlMessage(`control:set?paused=${nextPaused ? 1 : 0}`);
+  }, [effectiveDisabled, simPaused, simDt, onSendControlMessage]);
+
   function handleSimSpeedChange(nextSliderValue: number): void {
     if (effectiveDisabled) {
       return;
@@ -152,6 +166,13 @@ export function SimControlDock({
 
     const nextMultiplier = sliderToSimSpeedMultiplier(clampedSliderValue);
     const nextDt = BASE_SIM_DT * nextMultiplier;
+
+    // Optimistically update dt in store
+    useFrameStore.getState().setSimControlSnapshot({
+      paused: simPaused,
+      dt: nextDt,
+      defaultDt: useFrameStore.getState().simDefaultDt
+    });
 
     if (sendDtTimeoutRef.current !== null) {
       window.clearTimeout(sendDtTimeoutRef.current);
@@ -167,6 +188,11 @@ export function SimControlDock({
     if (localSliderVal !== null) {
       const nextMultiplier = sliderToSimSpeedMultiplier(localSliderVal);
       const nextDt = BASE_SIM_DT * nextMultiplier;
+      useFrameStore.getState().setSimControlSnapshot({
+        paused: simPaused,
+        dt: nextDt,
+        defaultDt: useFrameStore.getState().simDefaultDt
+      });
       if (sendDtTimeoutRef.current !== null) {
         window.clearTimeout(sendDtTimeoutRef.current);
         sendDtTimeoutRef.current = null;
@@ -203,14 +229,14 @@ export function SimControlDock({
       }
 
       ev.preventDefault();
-      onSendControlMessage(`control:set?paused=${simPaused ? 0 : 1}`);
+      togglePause();
     };
 
     window.addEventListener('keydown', handleSpaceToggle);
     return () => {
       window.removeEventListener('keydown', handleSpaceToggle);
     };
-  }, [effectiveDisabled, onSendControlMessage, simPaused]);
+  }, [effectiveDisabled, togglePause]);
 
   useEffect(() => {
     const handleTimeSpeedStep = (ev: KeyboardEvent) => {
@@ -232,6 +258,11 @@ export function SimControlDock({
       const delta = increaseSpeed ? 1 : -1;
       const nextMultiplier = Math.max(MIN_KEYBOARD_SIM_SPEED_MULTIPLIER, simSpeedMultiplier + delta);
       const nextDt = BASE_SIM_DT * nextMultiplier;
+      useFrameStore.getState().setSimControlSnapshot({
+        paused: simPaused,
+        dt: nextDt,
+        defaultDt: useFrameStore.getState().simDefaultDt
+      });
       onSendControlMessage(`control:set?dt=${encodeURIComponent(nextDt.toFixed(6))}`);
     };
 
@@ -239,7 +270,7 @@ export function SimControlDock({
     return () => {
       window.removeEventListener('keydown', handleTimeSpeedStep);
     };
-  }, [effectiveDisabled, onSendControlMessage, simSpeedMultiplier]);
+  }, [effectiveDisabled, onSendControlMessage, simPaused, simSpeedMultiplier]);
 
   return (
     <div className={styles.simControlDock}>
@@ -315,12 +346,7 @@ export function SimControlDock({
           aria-label={simPaused ? 'Resume simulation' : 'Pause simulation'}
           title={lockTitle || (simPaused ? 'Resume simulation' : 'Pause simulation')}
           disabled={effectiveDisabled}
-          onClick={() => {
-            if (effectiveDisabled) {
-              return;
-            }
-            onSendControlMessage(`control:set?paused=${simPaused ? 0 : 1}`);
-          }}
+          onClick={togglePause}
         >
           {simPaused ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
