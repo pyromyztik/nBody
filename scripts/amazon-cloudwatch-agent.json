@@ -1,0 +1,63 @@
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root",
+    "region": "ap-south-1"
+  },
+  "metrics": {
+    "namespace": "CWAgent",
+    "metrics_collected": {
+      "mem": {
+        "measurement": [
+          "mem_used_percent",
+          "mem_available",
+          "mem_used",
+          "mem_total"
+        ],
+        "metrics_collection_interval": 60
+      },
+      "disk": {
+        "measurement": [
+          "disk_used_percent",
+          "disk_free",
+          "disk_used",
+          "disk_total"
+        ],
+        "resources": [
+          "/"
+        ],
+        "drop_device": true,
+        "metrics_collection_interval": 60
+      },
+      "swap": {
+        "measurement": [
+          "swap_used_percent"
+        ],
+        "metrics_collection_interval": 60
+      }
+    },
+    "append_dimensions": {
+      "InstanceId": "${aws:InstanceId}",
+      "InstanceType": "${aws:InstanceType}"
+    }
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/home/ubuntu/nBody/logs/run_1.log",
+            "log_group_name": "/ec2/nbody/server-runs",
+            "log_stream_name": "{instance_id}-current-run",
+            "timestamp_format": "%Y-%m-%d %H:%M:%S"
+          },
+          {
+            "file_path": "/home/ubuntu/nBody/logs/uptime.log",
+            "log_group_name": "/ec2/nbody/uptime",
+            "log_stream_name": "{instance_id}-uptime"
+          }
+        ]
+      }
+    }
+  }
+}

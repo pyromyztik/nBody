@@ -163,6 +163,19 @@ export function startFrameWebSocket(
 
   let connectTimeoutTimer: number | null = null;
 
+  const detachAndCloseSocket = (socket: WebSocket | null, code = 1000, reason = 'Connection closed') => {
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    try {
+      socket.close(code, reason);
+    } catch {
+      // ignore
+    }
+  };
+
   const cleanupConnectTimeout = () => {
     if (connectTimeoutTimer !== null) {
       window.clearTimeout(connectTimeoutTimer);
@@ -181,6 +194,17 @@ export function startFrameWebSocket(
     if (stop) return;
     cleanupRetry();
     cleanupConnectTimeout();
+
+    // If an existing socket is already open or actively connecting, do not spawn a duplicate
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+      if (!isExplicit) {
+        return;
+      }
+      const oldSocket = ws;
+      ws = null;
+      detachAndCloseSocket(oldSocket);
+    }
+
     resetCarry();
     if (isExplicit) {
       onStatus?.('connecting');
@@ -201,18 +225,17 @@ export function startFrameWebSocket(
 
     // Prevent hanging in CONNECTING state indefinitely when backend host is offline
     connectTimeoutTimer = window.setTimeout(() => {
-      if (ws && ws.readyState === WebSocket.CONNECTING) {
+      if (ws === nextSocket && nextSocket.readyState === WebSocket.CONNECTING) {
         console.warn('[ws] Connection timed out (backend host offline or in standby)');
-        try {
-          ws.close();
-        } catch {
-          // ignore
-        }
+        ws = null;
+        detachAndCloseSocket(nextSocket);
         onStatus?.('disconnected');
+        if (!stop) retryTimer = window.setTimeout(() => connect(false), 2000);
       }
     }, 8000);
 
-    ws.onopen = () => {
+    nextSocket.onopen = () => {
+      if (ws !== nextSocket) return;
       cleanupConnectTimeout();
       onStatus?.('connected');
       startHeartbeat();
@@ -225,16 +248,19 @@ export function startFrameWebSocket(
       }
     };
 
-    ws.onerror = (err) => {
+    nextSocket.onerror = (err) => {
+      if (ws !== nextSocket) return;
       cleanupConnectTimeout();
       console.error('WebSocket error', err);
       onStatus?.('error');
     };
 
-    ws.onclose = (ev: CloseEvent) => {
+    nextSocket.onclose = (ev: CloseEvent) => {
+      if (ws !== nextSocket) return;
       cleanupConnectTimeout();
       stopHeartbeat();
       resetCarry();
+      ws = null;
 
       // Only downgrade to spectator if we don't have saved Master credentials to re-authenticate with
       if (!sessionStorage.getItem('nbody_master_pwd')) {
@@ -254,7 +280,8 @@ export function startFrameWebSocket(
       if (!stop) retryTimer = window.setTimeout(() => connect(false), 1000);
     };
 
-    ws.onmessage = async (ev: MessageEvent<ArrayBuffer | Blob | string>) => {
+    nextSocket.onmessage = async (ev: MessageEvent<ArrayBuffer | Blob | string>) => {
+      if (ws !== nextSocket) return;
       const data = ev.data;
       if (typeof data === 'string') {
         if (data === 'pong') {
@@ -343,11 +370,9 @@ export function startFrameWebSocket(
       cleanupConnectTimeout();
       window.removeEventListener('beforeunload', handlePageUnload);
       window.removeEventListener('pagehide', handlePageUnload);
-      try {
-        ws?.close(1000, 'Client closed');
-      } catch {
-        // ignore
-      }
+      const oldSocket = ws;
+      ws = null;
+      detachAndCloseSocket(oldSocket, 1000, 'Client closed');
     },
     sendText,
     loginAsMaster: (password: string, name: string) => {
@@ -359,11 +384,9 @@ export function startFrameWebSocket(
     reconnect: () => {
       stop = false;
       cleanupRetry();
-      try {
-        ws?.close();
-      } catch {
-        // ignore
-      }
+      const oldSocket = ws;
+      ws = null;
+      detachAndCloseSocket(oldSocket);
       connect(true);
     }
   };

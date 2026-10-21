@@ -169,15 +169,22 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
         return;
       }
     }
+
+    // Monotonic frame check: drop out-of-order or duplicate frames from delayed/interleaved packets.
+    // Allow lower frame numbers only on intentional resets or scenario switches (e.g. frame < 10 or bodyCount change).
+    if (frame <= prev.frame && frame >= 10 && prev.bodyCount === bodyCount && (prev.frame - frame) < 1000) {
+      return;
+    }
+
     fpsWindowFrameCount += 1;
     const windowElapsed = receivedAt - fpsWindowStart;
     if (windowElapsed >= 500) {
-      const instantFps = Math.min(240, Math.round((fpsWindowFrameCount * 1000) / windowElapsed));
-      currentFps = currentFps > 0 ? Math.round(currentFps * 0.6 + instantFps * 0.4) : instantFps;
+      const instantFps = Math.min(240, (fpsWindowFrameCount * 1000) / windowElapsed);
+      currentFps = currentFps > 0 ? (currentFps * 0.6 + instantFps * 0.4) : instantFps;
       fpsWindowStart = receivedAt;
       fpsWindowFrameCount = 0;
     }
-    const fps = currentFps > 0 ? currentFps : (prev.fps > 0 ? prev.fps : 60);
+    const fps = currentFps > 0 ? currentFps : (prev.fps > 0 ? prev.fps : 0);
     const valueCount = bodyCount * 3;
 
     if (positionBuffers[0].length !== valueCount) {

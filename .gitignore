@@ -58,6 +58,7 @@ obj/
 ### # Logs, Databases & Temporary Files
 # Prevents sensitive data or massive log files from leaking
 
+logs/
 *.log
 *.sql
 *.sqlite

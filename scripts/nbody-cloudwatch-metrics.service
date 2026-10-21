@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish EC2 Host & N-Body Server Uptime Metrics to CloudWatch
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/publish_cloudwatch_metrics.sh
+StandardOutput=journal
+StandardError=journal

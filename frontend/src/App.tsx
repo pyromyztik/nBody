@@ -496,14 +496,19 @@ export default function App() {
 
   useEffect(() => {
     if (!isWaking) return;
-    // Automatically poll and reconnect every 3s while booting until connected
+    // Automatically poll and reconnect while booting until connected
     const interval = window.setInterval(() => {
-      if (useFrameStore.getState().status === 'connected') {
+      const currentStatus = useFrameStore.getState().status;
+      if (currentStatus === 'connected') {
         setIsWaking(false);
         setWakeStatusMessage(null);
         return;
       }
-      socketControls?.reconnect();
+      // Only initiate a reconnect if socket is in a disconnected/error state,
+      // avoiding duplicate concurrent attempts while an attempt is actively connecting.
+      if (currentStatus === 'disconnected' || currentStatus === 'error') {
+        socketControls?.reconnect();
+      }
     }, 3000);
     return () => window.clearInterval(interval);
   }, [isWaking, socketControls]);

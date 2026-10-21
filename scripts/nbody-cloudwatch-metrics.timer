@@ -1,0 +1,10 @@
+[Unit]
+Description=Timer to Publish EC2 & N-Body Uptime Metrics to CloudWatch
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
