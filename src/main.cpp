@@ -575,9 +575,15 @@ int main(int argc, char* argv[]) {
         [&isSimRunning]() {
             return isSimRunning.load();
         },
-        [&broadcasterPtr]() {
-            cout << "[auth] Master connection dropped (simulation continues running)\n";
-            if (broadcasterPtr) broadcasterPtr->notifySimStateChanged();
+        [&controlBridge, &isSimRunning, &hasLoadedScenario, &broadcasterPtr]() {
+            cout << "[auth] Master connection dropped. Halting simulation and returning to lobby.\n";
+            isSimRunning = false;
+            hasLoadedScenario = false;
+            controlBridge.enqueueMessage("control:set?paused=1");
+            if (broadcasterPtr) {
+                broadcasterPtr->clearFrames();
+                broadcasterPtr->notifySimStateChanged();
+            }
         });
 
     broadcasterPtr = &broadcaster;

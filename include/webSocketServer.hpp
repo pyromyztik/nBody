@@ -225,7 +225,7 @@ public:
             app.template ws<PerSocketData>("/*", {
                 .compression = uWS::DISABLED,
                 .maxPayloadLength = 64 * 1024,
-                .idleTimeout = 120,
+                .idleTimeout = 16,
                 .maxBackpressure = 512 * 1024,
                 .open = [this, sendAuthState, broadcastAuthState](auto* ws) {
                     auto* data = ws->getUserData();
@@ -329,6 +329,15 @@ public:
 
                         std::string clientIp(ws->getRemoteAddressAsText());
 
+                        // Reject login if a Master session is already active
+                        if (currentMasterWs_ != nullptr && currentMasterWs_ != ws) {
+                            std::cout << "[auth] Rejected master login from " << clientIp
+                                      << ": Master session already active (" << masterName_ << ")\n";
+                            ws->send("auth:error?reason=" + nbody_auth::urlEncode("A Master session is already active. Only one Master is permitted."), uWS::OpCode::TEXT);
+                            sendAuthState(ws);
+                            return;
+                        }
+
                         if (quotaManager_) {
                             auto verifyRes = quotaManager_->verifyAndRecordLogin(password, masterPassword_, clientIp);
                             if (!verifyRes.allowed) {
@@ -343,21 +352,6 @@ public:
                                 ws->send("auth:error?reason=" + nbody_auth::urlEncode("Incorrect master password"), uWS::OpCode::TEXT);
                                 return;
                             }
-                        }
-
-                        if (currentMasterWs_ != nullptr && currentMasterWs_ != ws) {
-                            std::cout << "[auth] Replacing existing master connection (" << masterName_
-                                      << ") with newly authenticated master: " << name << "\n";
-                            auto* oldMasterWs = static_cast<decltype(ws)>(currentMasterWs_);
-                            auto* oldData = oldMasterWs->getUserData();
-                            if (oldData) {
-                                oldData->isMaster = false;
-                                oldData->isSpectator = false;
-                            }
-                            activeSpectators_.erase(oldMasterWs);
-                            oldMasterWs->send("auth:unauthorized?reason=" + nbody_auth::urlEncode("Master session resumed from another connection"), uWS::OpCode::TEXT);
-                            oldMasterWs->end(1000, "Master session resumed from another connection");
-                            currentMasterWs_ = nullptr;
                         }
 
                         // Successfully promote to Master

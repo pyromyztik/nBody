@@ -542,22 +542,27 @@ export default function App() {
   }, []);
 
   // Auto-routing for clients/spectators:
-  // When a spectator is viewing simulation and the simulation stops, return to landing.
-  // Spectators on the landing page are never automatically forced into simulation without explicit action.
+  // While a Master is active, all other connections act as spectators in simulation view (no landing page).
+  // When no Master exists, all clients are immediately taken to the authentication landing page.
   useEffect(() => {
-    const hasMasterCredentials = Boolean(sessionStorage.getItem('nbody_master_pwd'));
-    if (isLocallyHosted || userRole === 'master' || userRole === 'pending' || hasMasterCredentials) {
+    if (isLocallyHosted || userRole === 'master') {
       return;
     }
 
-    if (route === 'simulation') {
-      if (!isSimRunning || !hasMaster) {
+    if (hasMaster) {
+      if (route !== 'simulation' || !isSpectating) {
+        setIsSpectating(true);
+        setActiveScenarioSelection(null);
+        navigateToRoute('simulation');
+      }
+    } else {
+      if (route !== 'landing' || isSpectating) {
         setIsSpectating(false);
         setActiveScenarioSelection(null);
         navigateToRoute('landing', true);
       }
     }
-  }, [userRole, hasMaster, isSimRunning, route, isSpectating, navigateToRoute]);
+  }, [userRole, hasMaster, isLocallyHosted, route, isSpectating, navigateToRoute]);
 
   // Ensure no simulation is running when on the scenario selection (landing) page
   useEffect(() => {

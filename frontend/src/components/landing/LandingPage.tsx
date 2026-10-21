@@ -619,6 +619,8 @@ export function LandingPage({
 }: LandingPageProps) {
   const {
     userRole,
+    hasMaster,
+    masterName,
     isComputeExhausted,
     isLocallyHosted,
     isLoginLocked,
@@ -626,6 +628,8 @@ export function LandingPage({
     lastAuthError
   } = useFrameStore((state) => ({
     userRole: state.userRole,
+    hasMaster: state.hasMaster,
+    masterName: state.masterName,
     isComputeExhausted: state.isComputeExhausted,
     isLocallyHosted: state.isLocallyHosted,
     isLoginLocked: state.isLoginLocked,
@@ -751,119 +755,153 @@ export function LandingPage({
         </div>
 
         {!isAuthorized ? (
-          <form className={styles.controlPanel} onSubmit={handleAuthSubmit} noValidate>
-            <div className={styles.selectorHeading}>Master Access</div>
-            <article className={styles.authCard}>
-              <div className={styles.authTitleWrapper}>
-                <span className={styles.authCrownIcon} aria-hidden="true">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z" />
-                    <path d="M5 21h14" />
-                  </svg>
-                </span>
-                <div>
-                  <h2 className={styles.authTitle}>Master Authentication</h2>
-                  <p className={styles.authSubtitle}>Console Operator Access</p>
-                </div>
-              </div>
-
-              <p className={styles.authDescription}>
-                The Master has exclusive control to select scenarios, launch simulations, pause/play,
-                and adjust physics speed. Up to 6 spectators can observe simultaneously.
-              </p>
-
-              {isLocked ? (
-                <div className={styles.authLockoutBanner} role="alert">
-                  Master authentication is locked out for the day (maximum 5 failed attempts exceeded). Please return tomorrow.
-                </div>
-              ) : (
-                <>
-                  {effectiveAuthError && (
-                    <div className={styles.authErrorBanner} role="alert">
-                      {effectiveAuthError}
-                    </div>
-                  )}
-                  {remainingLoginAttempts < 5 && (
-                    <div className={styles.authWarningBanner} role="status">
-                      {remainingLoginAttempts} attempt(s) remaining before daily lockout.
-                    </div>
-                  )}
-                </>
-              )}
-
-              {isComputeExhausted && (
-                <div className={styles.computeExhaustedNotice} role="alert">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  <span>
-                    <strong>Daily Compute Limit Reached (1h).</strong> Today&apos;s simulation quota has been exhausted. Please return tomorrow to continue using the simulator.
+          hasMaster ? (
+            <div className={styles.controlPanel}>
+              <div className={styles.selectorHeading}>Active Session</div>
+              <article className={styles.authCard}>
+                <div className={styles.authTitleWrapper}>
+                  <span className={styles.authCrownIcon} aria-hidden="true">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z" />
+                      <path d="M5 21h14" />
+                    </svg>
                   </span>
+                  <div>
+                    <h2 className={styles.authTitle}>Master Session Active</h2>
+                    <p className={styles.authSubtitle}>Console Controlled by {masterName || 'Master'}</p>
+                  </div>
                 </div>
-              )}
 
-              <div className={styles.authFieldsGroup}>
-                <label className={styles.formField}>
-                  <span>Display Name</span>
-                  <input
-                    type="text"
-                    placeholder="e.g. Commander (or leave empty)"
-                    value={authName}
-                    onChange={(e) => setAuthName(e.target.value)}
-                    maxLength={24}
-                    autoComplete="name"
-                  />
-                </label>
+                <p className={styles.authDescription}>
+                  A Master operator is currently commanding the simulation. All other connections observe live as spectators.
+                </p>
+              </article>
+            </div>
+          ) : (
+            <form className={styles.controlPanel} onSubmit={handleAuthSubmit} noValidate>
+              <div className={styles.selectorHeading}>Master Access</div>
+              <article className={styles.authCard}>
+                <div className={styles.authTitleWrapper}>
+                  <span className={styles.authCrownIcon} aria-hidden="true">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z" />
+                      <path d="M5 21h14" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h2 className={styles.authTitle}>Master Authentication</h2>
+                    <p className={styles.authSubtitle}>Console Operator Access</p>
+                  </div>
+                </div>
 
-                <label className={styles.formField}>
-                  <span>Master Password *</span>
-                  <input
-                    type="password"
-                    placeholder={isLocked ? 'Authentication locked for today' : 'Enter password'}
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    required
-                    disabled={isLocked}
-                    autoFocus={!isLocked}
-                    autoComplete="current-password"
-                  />
-                </label>
-              </div>
+                <p className={styles.authDescription}>
+                  The Master has exclusive control to select scenarios, launch simulations, pause/play,
+                  and adjust physics speed. Up to 6 spectators can observe simultaneously.
+                </p>
 
-              <div className={styles.actionRow}>
-                <button
-                  className={styles.simulateButton}
-                  type="submit"
-                  disabled={submittingAuth || !authPassword.trim() || isLocked}
-                >
-                  {isLocked ? 'Authentication Locked' : 'Authenticate as Master'}
-                </button>
-              </div>
-            </article>
-          </form>
+                {isLocked ? (
+                  <div className={styles.authLockoutBanner} role="alert">
+                    Master authentication is locked out for the day (maximum 5 failed attempts exceeded). Please return tomorrow.
+                  </div>
+                ) : (
+                  <>
+                    {effectiveAuthError && (
+                      <div className={styles.authErrorBanner} role="alert">
+                        {effectiveAuthError}
+                      </div>
+                    )}
+                    {remainingLoginAttempts < 5 && (
+                      <div className={styles.authWarningBanner} role="status">
+                        {remainingLoginAttempts} attempt(s) remaining before daily lockout.
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {isComputeExhausted && (
+                  <div className={styles.computeExhaustedNotice} role="alert">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span>
+                      <strong>Daily Compute Limit Reached (1h).</strong> Today&apos;s simulation quota has been exhausted. Please return tomorrow to continue using the simulator.
+                    </span>
+                  </div>
+                )}
+
+                <div className={styles.authFieldsGroup}>
+                  <label className={styles.formField}>
+                    <span>Display Name</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Commander (or leave empty)"
+                      value={authName}
+                      onChange={(e) => setAuthName(e.target.value)}
+                      maxLength={24}
+                      autoComplete="name"
+                    />
+                  </label>
+
+                  <label className={styles.formField}>
+                    <span>Master Password *</span>
+                    <input
+                      type="password"
+                      placeholder={isLocked ? 'Authentication locked for today' : 'Enter password'}
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      required
+                      disabled={isLocked}
+                      autoFocus={!isLocked}
+                      autoComplete="current-password"
+                    />
+                  </label>
+                </div>
+
+                <div className={styles.actionRow}>
+                  <button
+                    className={styles.simulateButton}
+                    type="submit"
+                    disabled={submittingAuth || !authPassword.trim() || isLocked}
+                  >
+                    {isLocked ? 'Authentication Locked' : 'Authenticate as Master'}
+                  </button>
+                </div>
+              </article>
+            </form>
+          )
         ) : (
           <form className={styles.controlPanel} onSubmit={handleSubmit} noValidate>
             <div className={styles.selectorHeading}>Scenario Selector</div>

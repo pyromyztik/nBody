@@ -351,7 +351,12 @@ export function startFrameWebSocket(
 
   const handlePageUnload = () => {
     try {
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      sessionStorage.removeItem('nbody_master_pwd');
+      sessionStorage.removeItem('nbody_master_name');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send('auth:logout');
+        ws.close(1000, 'Tab closed');
+      } else if (ws && ws.readyState === WebSocket.CONNECTING) {
         ws.close(1000, 'Tab closed');
       }
     } catch {
