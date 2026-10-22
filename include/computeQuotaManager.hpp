@@ -47,7 +47,7 @@ public:
     }
 
     ~ComputeQuotaManager() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         saveToFileLocked();
     }
 
@@ -55,7 +55,7 @@ public:
     bool addComputeSeconds(double seconds) {
         if (seconds <= 0.0) return isComputeExhausted();
 
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         checkDateRolloverLocked();
 
         if (usedComputeSeconds_ >= maxComputeSeconds_) {
@@ -78,13 +78,13 @@ public:
     }
 
     bool isComputeExhausted() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         checkDateRolloverLocked();
         return usedComputeSeconds_ >= maxComputeSeconds_;
     }
 
     double getUsedComputeSeconds() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         checkDateRolloverLocked();
         return usedComputeSeconds_;
     }
@@ -94,7 +94,7 @@ public:
     }
 
     double getRemainingComputeSeconds() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         checkDateRolloverLocked();
         return std::max(0.0, maxComputeSeconds_ - usedComputeSeconds_);
     }
@@ -127,7 +127,7 @@ public:
         const std::string& expectedPassword,
         const std::string& clientIp
     ) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         checkDateRolloverLocked();
 
         LoginVerificationResult result;
@@ -140,14 +140,14 @@ public:
             if (elapsedMs < MIN_ATTEMPT_INTERVAL_MS) {
                 result.rateLimited = true;
                 result.errorMessage = "Rate limit exceeded. Please wait a moment between attempts.";
-                result.remainingAttempts = getRemainingLoginAttempts(clientIp);
+                result.remainingAttempts = getRemainingLoginAttemptsLocked(clientIp);
                 return result;
             }
         }
         lastAttemptTimeByIp_[clientIp] = now;
 
         // 2. Check if this IP is locked out for the day
-        if (isLoginLocked(clientIp)) {
+        if (isLoginLockedLocked(clientIp)) {
             result.lockedOut = true;
             result.remainingAttempts = 0;
             result.errorMessage = "Maximum password attempts exceeded. Master login is locked out for your IP for today. Please return tomorrow.";
@@ -163,7 +163,7 @@ public:
 
         if (inputPassword.size() > 128) {
             result.errorMessage = "Password length exceeds maximum allowed limit.";
-            result.remainingAttempts = getRemainingLoginAttempts(clientIp);
+            result.remainingAttempts = getRemainingLoginAttemptsLocked(clientIp);
             return result;
         }
 
@@ -199,28 +199,19 @@ public:
     }
 
     bool isLoginLocked(const std::string& clientIp = "") {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         checkDateRolloverLocked();
-        if (!clientIp.empty() && lockedOutIPs_.count(clientIp) > 0) {
-            return true;
-        }
-        return false;
+        return isLoginLockedLocked(clientIp);
     }
 
     int getRemainingLoginAttempts(const std::string& clientIp = "") {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         checkDateRolloverLocked();
-        if (!clientIp.empty()) {
-            auto it = ipFailedAttempts_.find(clientIp);
-            if (it != ipFailedAttempts_.end()) {
-                return std::max(0, MAX_PASSWORD_ATTEMPTS - it->second);
-            }
-        }
-        return MAX_PASSWORD_ATTEMPTS;
+        return getRemainingLoginAttemptsLocked(clientIp);
     }
 
     void resetQuotaAndAttempts() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         std::cout << "[quota] Resetting tracked compute usage (was " << usedComputeSeconds_
                   << "s) and failed password attempts (was " << failedLoginAttempts_ << " attempts, "
                   << lockedOutIPs_.size() << " locked IP(s)).\n";
@@ -341,7 +332,24 @@ private:
         }
     }
 
-    std::mutex mutex_;
+    bool isLoginLockedLocked(const std::string& clientIp) const {
+        if (!clientIp.empty() && lockedOutIPs_.count(clientIp) > 0) {
+            return true;
+        }
+        return false;
+    }
+
+    int getRemainingLoginAttemptsLocked(const std::string& clientIp) const {
+        if (!clientIp.empty()) {
+            auto it = ipFailedAttempts_.find(clientIp);
+            if (it != ipFailedAttempts_.end()) {
+                return std::max(0, MAX_PASSWORD_ATTEMPTS - it->second);
+            }
+        }
+        return MAX_PASSWORD_ATTEMPTS;
+    }
+
+    std::recursive_mutex mutex_;
     std::string persistenceFilePath_;
     std::string currentDate_;
     double maxComputeSeconds_ = DEFAULT_DAILY_COMPUTE_LIMIT_SECONDS;
