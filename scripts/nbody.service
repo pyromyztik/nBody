@@ -11,7 +11,10 @@ Restart=on-failure
 RestartSec=5s
 KillMode=mixed
 TimeoutStopSec=15s
-Environment=SIM_MASTER_PASSWORD=s#w1Ft!@5173
+EnvironmentFile=-/etc/default/nbody
+RuntimeDirectory=nbody
+RuntimeDirectoryMode=0755
+Environment=SIM_ACTIVITY_FILE=/run/nbody/nbody_sim_active
 
 [Install]
 WantedBy=multi-user.target

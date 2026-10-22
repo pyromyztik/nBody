@@ -456,6 +456,8 @@ namespace {
 }
 
 int main(int argc, char* argv[]) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::cout << std::unitbuf;
     signal(SIGINT, handleSignal);
     signal(SIGTERM, handleSignal);
 

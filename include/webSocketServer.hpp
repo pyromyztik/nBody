@@ -21,9 +21,33 @@
 
 namespace nbody_auth {
 
+inline bool isAllowedOrigin(std::string_view origin) {
+    if (origin.empty()) {
+        // Direct non-browser tools / CLI / tests
+        return true;
+    }
+    // Production domains
+    if (origin == "https://pyromyztik.me" || origin == "http://pyromyztik.me" ||
+        origin == "https://pyromyztik.github.io" || origin == "http://pyromyztik.github.io") {
+        return true;
+    }
+    // Local development origins
+    if (origin.rfind("http://localhost", 0) == 0 || origin.rfind("https://localhost", 0) == 0 ||
+        origin.rfind("http://127.0.0.1", 0) == 0 || origin.rfind("https://127.0.0.1", 0) == 0) {
+        return true;
+    }
+    return false;
+}
+
 inline void touchActivityFile() {
 #if !defined(_WIN32)
-    FILE* f = std::fopen("/tmp/nbody_sim_active", "w");
+    const char* envPath = std::getenv("SIM_ACTIVITY_FILE");
+    const char* filePath = (envPath && envPath[0] != '\0') ? envPath : "/run/nbody/nbody_sim_active";
+    FILE* f = std::fopen(filePath, "w");
+    if (!f && filePath != std::string("/tmp/nbody_sim_active")) {
+        // Fallback to /tmp if /run/nbody is not present
+        f = std::fopen("/tmp/nbody_sim_active", "w");
+    }
     if (f) {
         std::fprintf(f, "%ld\n", static_cast<long>(std::time(nullptr)));
         std::fclose(f);
@@ -142,15 +166,22 @@ public:
             std::cout << "[auth] Running in locally-hosted mode: password auth and limits bypassed.\n";
         } else {
             const char* envPwd = std::getenv("SIM_MASTER_PASSWORD");
-            masterPassword_ = (envPwd && envPwd[0] != '\0') ? std::string(envPwd) : "s#w1Ft!@5173";
-            std::cout << "[auth] Master password configured: " << masterPassword_ << "\n";
+            if (envPwd && envPwd[0] != '\0') {
+                masterPassword_ = std::string(envPwd);
+                std::cout << "[auth] Master password loaded from environment.\n";
+            } else {
+                masterPassword_ = "";
+                std::cerr << "[auth] WARNING: SIM_MASTER_PASSWORD is not set or empty! Master authentication is DISABLED.\n";
+            }
         }
 
         serverThread_ = std::thread([this, port]() {
             struct PerSocketData {
                 bool isMaster = false;
                 bool isSpectator = false;
+                bool isPending = false;
                 std::string clientName;
+                std::string clientIp;
             };
 
             uWS::App app;
@@ -227,11 +258,55 @@ public:
                 .maxPayloadLength = 64 * 1024,
                 .idleTimeout = 16,
                 .maxBackpressure = 512 * 1024,
+                .upgrade = [this](auto* res, auto* req, auto* context) {
+                    std::string_view origin = req->getHeader("origin");
+                    if (!locallyHosted_ && !nbody_auth::isAllowedOrigin(origin)) {
+                        std::cout << "[auth] Rejected WebSocket connection from unauthorized origin: " << origin << "\n";
+                        res->writeStatus("403 Forbidden")
+                           ->writeHeader("Content-Type", "text/plain")
+                           ->end("Unauthorized Origin");
+                        return;
+                    }
+
+                    std::string realIp;
+                    std::string_view xForwardedFor = req->getHeader("x-forwarded-for");
+                    if (!xForwardedFor.empty()) {
+                        size_t comma = xForwardedFor.find(',');
+                        if (comma != std::string_view::npos) {
+                            realIp = std::string(xForwardedFor.substr(0, comma));
+                        } else {
+                            realIp = std::string(xForwardedFor);
+                        }
+                        while (!realIp.empty() && realIp.front() == ' ') realIp.erase(realIp.begin());
+                        while (!realIp.empty() && realIp.back() == ' ') realIp.pop_back();
+                    }
+                    if (realIp.empty()) {
+                        std::string_view xRealIp = req->getHeader("x-real-ip");
+                        if (!xRealIp.empty()) {
+                            realIp = std::string(xRealIp);
+                        }
+                    }
+
+                    PerSocketData socketData;
+                    socketData.clientIp = realIp;
+
+                    res->template upgrade<PerSocketData>(
+                        std::move(socketData),
+                        req->getHeader("sec-websocket-key"),
+                        req->getHeader("sec-websocket-protocol"),
+                        req->getHeader("sec-websocket-extensions"),
+                        context
+                    );
+                },
                 .open = [this, sendAuthState, broadcastAuthState](auto* ws) {
                     auto* data = ws->getUserData();
                     data->isMaster = false;
                     data->isSpectator = false;
+                    data->isPending = false;
                     data->clientName = "";
+                    if (data->clientIp.empty()) {
+                        data->clientIp = std::string(ws->getRemoteAddressAsText());
+                    }
 
                     if (locallyHosted_) {
                         data->isMaster = true;
@@ -263,15 +338,23 @@ public:
                     if (activeSpectators_.size() < MAX_SPECTATORS) {
                         data->isSpectator = true;
                         activeSpectators_.insert(ws);
-                        std::cout << "[ws] client connected as spectator. Total spectators: "
+                        std::cout << "[ws] client (" << data->clientIp << ") connected as spectator. Total spectators: "
                                   << activeSpectators_.size() << "/" << MAX_SPECTATORS << "\n";
+                        ws->subscribe("frames");
                     } else {
                         // All spectator slots taken, but master slot is open.
-                        // Allow connection as pending so user can enter password to become master.
-                        std::cout << "[ws] client connected as unauthenticated pending (master slot available)\n";
+                        // Allow AT MOST ONE pending connection to prevent connection flooding.
+                        if (pendingMasterWs_ != nullptr) {
+                            std::cout << "[auth] Connection rejected: server is full (pending master authentication in progress)\n";
+                            ws->send("auth:error?reason=" + nbody_auth::urlEncode("Server is full. A Master login attempt is in progress."), uWS::OpCode::TEXT);
+                            ws->end(1008, "Server is full (max 6 spectators)");
+                            return;
+                        }
+                        data->isPending = true;
+                        pendingMasterWs_ = ws;
+                        std::cout << "[ws] client (" << data->clientIp << ") connected as unauthenticated pending (master slot available)\n";
+                        // Notice: Do NOT subscribe to "frames" stream until authenticated!
                     }
-
-                    ws->subscribe("frames");
 
                     // Send current auth state to new client
                     sendAuthState(ws);
@@ -327,7 +410,7 @@ public:
                             start = end + 1;
                         }
 
-                        std::string clientIp(ws->getRemoteAddressAsText());
+                        std::string clientIp = data->clientIp.empty() ? std::string(ws->getRemoteAddressAsText()) : data->clientIp;
 
                         // Reject login if a Master session is already active
                         if (currentMasterWs_ != nullptr && currentMasterWs_ != ws) {
@@ -335,6 +418,12 @@ public:
                                       << ": Master session already active (" << masterName_ << ")\n";
                             ws->send("auth:error?reason=" + nbody_auth::urlEncode("A Master session is already active. Only one Master is permitted."), uWS::OpCode::TEXT);
                             sendAuthState(ws);
+                            return;
+                        }
+
+                        if (masterPassword_.empty()) {
+                            std::cout << "[auth] Rejected master login: SIM_MASTER_PASSWORD is not configured on server.\n";
+                            ws->send("auth:error?reason=" + nbody_auth::urlEncode("Master authentication is disabled on this server."), uWS::OpCode::TEXT);
                             return;
                         }
 
@@ -347,8 +436,8 @@ public:
                                 return;
                             }
                         } else {
-                            if (password != masterPassword_) {
-                                std::cout << "[auth] Failed master login attempt with invalid password\n";
+                            if (!ComputeQuotaManager::constantTimeCompare(password, masterPassword_)) {
+                                std::cout << "[auth] Failed master login attempt with invalid password from " << clientIp << "\n";
                                 ws->send("auth:error?reason=" + nbody_auth::urlEncode("Incorrect master password"), uWS::OpCode::TEXT);
                                 return;
                             }
@@ -356,11 +445,17 @@ public:
 
                         // Successfully promote to Master
                         activeSpectators_.erase(ws);
+                        if (pendingMasterWs_ == ws) {
+                            pendingMasterWs_ = nullptr;
+                        }
+                        data->isPending = false;
                         data->isSpectator = false;
                         data->isMaster = true;
                         data->clientName = name;
                         currentMasterWs_ = ws;
                         masterName_ = name;
+
+                        ws->subscribe("frames");
 
                         std::cout << "[auth] Client authenticated as Master: " << masterName_ << " (" << clientIp << ")\n";
                         nbody_auth::touchActivityFile();
@@ -379,6 +474,8 @@ public:
                             if (activeSpectators_.size() < MAX_SPECTATORS) {
                                 data->isSpectator = true;
                                 activeSpectators_.insert(ws);
+                            } else {
+                                ws->unsubscribe("frames");
                             }
                             ws->send("auth:ok?role=spectator", uWS::OpCode::TEXT);
                             broadcastAuthState();
@@ -417,6 +514,9 @@ public:
                 .close = [this, broadcastAuthState](auto* ws, int /*code*/, std::string_view /*message*/) {
                     auto* data = ws->getUserData();
                     activeSpectators_.erase(ws);
+                    if (pendingMasterWs_ == ws) {
+                        pendingMasterWs_ = nullptr;
+                    }
 
                     if (locallyHosted_) {
                         if (currentMasterWs_ == ws) {
@@ -439,10 +539,11 @@ public:
                         broadcastAuthState();
                     }
                 }
-            }).listen(port, [this, port](us_listen_socket_t* token) {
+            }).listen(locallyHosted_ ? "0.0.0.0" : "127.0.0.1", port, [this, port](us_listen_socket_t* token) {
                 if (token) {
                     listenSocket_ = token;
-                    std::cout << "WebSocket server listening on port " << port << " (uWebSockets)\n";
+                    std::cout << "WebSocket server listening on "
+                              << (locallyHosted_ ? "0.0.0.0" : "127.0.0.1") << ":" << port << " (uWebSockets)\n";
                 } else {
                     std::cerr << "WebSocket failed to listen on port " << port << "\n";
                 }
@@ -542,6 +643,7 @@ private:
 
     std::string masterPassword_;
     void* currentMasterWs_ = nullptr;
+    void* pendingMasterWs_ = nullptr;
     std::string masterName_;
     std::unordered_set<void*> activeSpectators_;
 
