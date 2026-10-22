@@ -230,9 +230,9 @@ export function startFrameWebSocket(
         ws = null;
         detachAndCloseSocket(nextSocket);
         onStatus?.('disconnected');
-        if (!stop) retryTimer = window.setTimeout(() => connect(false), 2000);
+        if (!stop) retryTimer = window.setTimeout(() => connect(false), 1500);
       }
-    }, 8000);
+    }, 3000);
 
     nextSocket.onopen = () => {
       if (ws !== nextSocket) return;
@@ -248,10 +248,9 @@ export function startFrameWebSocket(
       }
     };
 
-    nextSocket.onerror = (err) => {
+    nextSocket.onerror = () => {
       if (ws !== nextSocket) return;
       cleanupConnectTimeout();
-      console.error('WebSocket error', err);
       onStatus?.('error');
     };
 

@@ -457,7 +457,7 @@ export default function App() {
     setWakeStatusMessage('Starting simulation node. Connecting automatically once online...');
 
     try {
-      await fetch(wakeUrl, { method: 'POST', mode: 'cors' });
+      await fetch(wakeUrl, { method: 'POST', mode: 'no-cors' });
     } catch (err) {
       console.warn('Wakeup request dispatched:', err);
     }
@@ -480,12 +480,8 @@ export default function App() {
         setWakeStatusMessage(null);
         return;
       }
-      // Only initiate a reconnect if socket is in a disconnected/error state,
-      // avoiding duplicate concurrent attempts while an attempt is actively connecting.
-      if (currentStatus === 'disconnected' || currentStatus === 'error') {
-        socketControls?.reconnect();
-      }
-    }, 3000);
+      socketControls?.reconnect();
+    }, 2000);
     return () => window.clearInterval(interval);
   }, [isWaking, socketControls]);
 
