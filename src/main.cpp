@@ -313,9 +313,10 @@ namespace {
                 std::nth_element(arr.begin() + k1 + 1, arr.begin() + k2, arr.end());
                 const float p99 = arr[k2];
                 const float span = std::max(p99 - p1, 1e-4f);
-                // Allow generous 35% margin beyond 1st/99th percentiles before clamping outliers
-                const float robustMin = p1 - 0.35f * span;
-                const float robustMax = p99 + 0.35f * span;
+                // Allow tight 15% margin beyond 1st/99th percentiles before clamping outliers
+                // to maximize 16-bit coordinate resolution over the active particle core.
+                const float robustMin = p1 - 0.15f * span;
+                const float robustMax = p99 + 0.15f * span;
                 outMin = std::max(absMin, robustMin);
                 outMax = std::min(absMax, robustMax);
                 if (outMax <= outMin) outMax = outMin + 1e-4f;
@@ -350,12 +351,12 @@ namespace {
 
             if (cMin < boxMin + threshold) {
                 const float span = std::max(cMax - cMin, 1e-4f);
-                boxMin = cMin - span * 0.20f;
+                boxMin = cMin - span * 0.10f;
                 changed = true;
             }
             if (cMax > boxMax - threshold) {
                 const float span = std::max(cMax - cMin, 1e-4f);
-                boxMax = cMax + span * 0.20f;
+                boxMax = cMax + span * 0.10f;
                 changed = true;
             }
             if (changed) {

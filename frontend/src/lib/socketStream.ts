@@ -351,9 +351,15 @@ export function startFrameWebSocket(
 
   const handlePageUnload = () => {
     try {
+      const isMasterSession =
+        Boolean(sessionStorage.getItem('nbody_master_pwd')) ||
+        useFrameStore.getState().userRole === 'master';
       sessionStorage.removeItem('nbody_master_pwd');
       sessionStorage.removeItem('nbody_master_name');
       if (ws && ws.readyState === WebSocket.OPEN) {
+        if (isMasterSession) {
+          ws.send('sim:console');
+        }
         ws.send('auth:logout');
         ws.close(1000, 'Tab closed');
       } else if (ws && ws.readyState === WebSocket.CONNECTING) {

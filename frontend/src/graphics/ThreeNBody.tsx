@@ -57,7 +57,7 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
         (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 768px)').matches));
 
-    const maxRenderPixelRatio = isMobile ? 1.0 : (useStableOrbitTheme ? 2 : 1.5);
+    const maxRenderPixelRatio = isMobile ? 2 : (useStableOrbitTheme ? 2.5 : 1.5);
     const stableColorSeed = Math.floor(Math.random() * 1_000_000_000);
 
     const canvas = document.createElement('canvas');
@@ -98,7 +98,7 @@ export const ThreeNBody = React.memo(function ThreeNBody({
     renderingPipeline.bloomWeight = useStableOrbitTheme ? 0.12 : 0.01;
     renderingPipeline.bloomScale = isMobile ? 0.5 : (useStableOrbitTheme ? 0.9 : 0.5);
     renderingPipeline.samples = isMobile
-      ? 1
+      ? Math.max(1, Math.min(2, engine.getCaps().maxMSAASamples || 1))
       : (useStableOrbitTheme
         ? Math.max(1, Math.min(8, engine.getCaps().maxMSAASamples || 1))
         : Math.max(1, Math.min(4, engine.getCaps().maxMSAASamples || 1)));
@@ -161,15 +161,17 @@ export const ThreeNBody = React.memo(function ThreeNBody({
     let displayPositions = new Float32Array(0);
     let blendStartPositions = new Float32Array(0);
     let blendTargetPositions = new Float32Array(0);
-    let blendDeltaPositions = new Float32Array(0);
+    let targetSpeeds = new Float32Array(0);
+    let renderedSpeeds = new Float32Array(0);
     let blendStartTime = 0;
     let blendDurationMs = 0;
     let smoothedFrameIntervalMs = 1000 / 60;
     let blendActive = false;
+    let hasInitialKeyframe = false;
+    let colorsTransitioning = false;
     let boundsCenter = new Vector3(0, 0, 0);
     let boundsRadius = 1;
     let needsFit = true;
-    let speedScratch = new Float32Array(0);
     let accelerationVectorScratch = new Float32Array(0);
     let accelerationMagnitudeScratch = new Float32Array(0);
     let percentileScratch = new Float32Array(0);
@@ -183,6 +185,8 @@ export const ThreeNBody = React.memo(function ThreeNBody({
     let latestVelocities: Float32Array | null = null;
     let latestAccelerationVectors: Float32Array | null = null;
     let latestAccelerationMagnitudes: Float32Array | null = null;
+    let targetSpeedMin = 0;
+    let targetSpeedSpan = 1;
     let latestSpeedMin = 0;
     let latestSpeedSpan = 1;
     let latestAccelerationMin = 0;
@@ -226,25 +230,34 @@ export const ThreeNBody = React.memo(function ThreeNBody({
 
     window.addEventListener('resize', onResize);
 
-    const ensureDisplayBuffers = (floatCount: number) => {
+    const ensureDisplayBuffers = (floatCount: number, bodyCount: number) => {
       if (displayPositions.length !== floatCount) {
         displayPositions = new Float32Array(floatCount);
         blendStartPositions = new Float32Array(floatCount);
         blendTargetPositions = new Float32Array(floatCount);
-        blendDeltaPositions = new Float32Array(floatCount);
         blendActive = false;
+        hasInitialKeyframe = false;
+      }
+      if (targetSpeeds.length !== bodyCount) {
+        targetSpeeds = new Float32Array(bodyCount);
+        renderedSpeeds = new Float32Array(bodyCount);
       }
     };
 
-    const snapDisplayPositions = (positions: Float32Array) => {
-      ensureDisplayBuffers(positions.length);
+    const snapDisplayPositions = (positions: Float32Array, speeds?: Float32Array | null) => {
+      const bodyCount = Math.floor(positions.length / 3);
+      ensureDisplayBuffers(positions.length, bodyCount);
       displayPositions.set(positions);
       blendStartPositions.set(positions);
       blendTargetPositions.set(positions);
-      blendDeltaPositions.fill(0);
+      if (speeds && speeds.length === bodyCount) {
+        targetSpeeds.set(speeds);
+        renderedSpeeds.set(speeds);
+      }
       blendStartTime = 0;
       blendDurationMs = 0;
       blendActive = false;
+      hasInitialKeyframe = true;
     };
 
     const beginDisplayInterpolation = (
@@ -252,27 +265,30 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       durationMs: number,
       nowMs: number
     ) => {
-      ensureDisplayBuffers(positions.length);
-      const len = positions.length;
+      const bodyCount = Math.floor(positions.length / 3);
+      ensureDisplayBuffers(positions.length, bodyCount);
+
+      if (!hasInitialKeyframe || blendTargetPositions.length !== positions.length) {
+        snapDisplayPositions(positions, null);
+        return;
+      }
 
       // Filter out network packet arrival jitter with exponential moving average
       if (durationMs >= 2 && durationMs <= 500) {
         smoothedFrameIntervalMs = smoothedFrameIntervalMs * 0.7 + durationMs * 0.3;
       }
 
+      // Continuous C2 visual blending:
+      // Start the new segment from where the bodies ACTUALLY are on screen right now!
+      // This completely eliminates snapping/teleporting when packets arrive early or late.
+      blendStartPositions.set(displayPositions);
+      blendTargetPositions.set(positions);
+
       blendStartTime = nowMs;
       blendDurationMs = Math.min(
         MAX_BODY_INTERPOLATION_MS,
         Math.max(MIN_BODY_INTERPOLATION_MS, smoothedFrameIntervalMs)
       );
-
-      // Precalculate start and delta vectors for ultra-fast linear interpolation in renderLoop
-      for (let i = 0; i < len; i++) {
-        const cur = displayPositions[i];
-        blendStartPositions[i] = cur;
-        blendTargetPositions[i] = positions[i];
-        blendDeltaPositions[i] = positions[i] - cur;
-      }
       blendActive = true;
     };
 
@@ -283,23 +299,36 @@ export const ThreeNBody = React.memo(function ThreeNBody({
 
       const elapsed = nowMs - blendStartTime;
       const rawProgress = elapsed / blendDurationMs;
-
-      // When simulation is paused, clamp at 1.0. When active, allow gentle coasting up to 1.35
-      // to bridge small network jitter delays without freezing in place.
       const isPaused = useFrameStore.getState().simPaused;
-      const maxProgress = isPaused ? 1.0 : 1.35;
-      const progress = Math.min(maxProgress, Math.max(0, rawProgress));
 
-      const len = displayPositions.length;
-      for (let i = 0; i < len; i++) {
-        displayPositions[i] = blendStartPositions[i] + blendDeltaPositions[i] * progress;
+      // When simulation is paused, clamp at 1.0.
+      // When active, if the next packet is slightly delayed by network jitter,
+      // apply an asymptotic soft ease-out towards 1.12 to prevent freeze without snapping back.
+      let t: number;
+      if (isPaused || rawProgress <= 1.0) {
+        t = Math.min(1.0, Math.max(0, rawProgress));
+      } else {
+        t = 1.0 + (1.0 - Math.exp(-(rawProgress - 1.0) * 3.0)) * 0.12;
       }
 
-      // If we've coasted beyond the limit without new frames arriving, pause updating
-      if (rawProgress >= maxProgress) {
-        if (isPaused) {
-          displayPositions.set(blendTargetPositions);
-        }
+      // Quintic SmootherStep: S(t) = 6t^5 - 15t^4 + 10t^3
+      // S(0) = 0, S'(0) = 0, S''(0) = 0
+      // S(1) = 1, S'(1) = 0, S''(1) = 0
+      // Guarantees C2 boundary continuity from current visual position with zero velocity jerk!
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const progress = t3 * (t * (t * 6 - 15) + 10);
+
+      const len = displayPositions.length;
+      const startP = blendStartPositions;
+      const targetP = blendTargetPositions;
+
+      for (let i = 0; i < len; i++) {
+        displayPositions[i] = startP[i] + (targetP[i] - startP[i]) * progress;
+      }
+
+      if (rawProgress >= 1.5 && isPaused) {
+        displayPositions.set(blendTargetPositions);
         blendActive = false;
       }
 
@@ -313,6 +342,24 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       let frameChanged = false;
       // Advance any active interpolation before processing newly arrived samples.
       const displayPositionsChanged = updateDisplayPositions(now);
+
+      // Advance 0.75-second continuous velocity color smoothing at native viewport refresh rate
+      if (renderedSpeeds.length === lastBodyCount && lastBodyCount > 0) {
+        const colorAlpha = Math.min(1.0, Math.max(0.001, 1 - Math.exp(-dt / 0.75)));
+        let maxColorDelta = 0;
+        for (let i = 0; i < lastBodyCount; i++) {
+          const delta = targetSpeeds[i] - renderedSpeeds[i];
+          renderedSpeeds[i] += delta * colorAlpha;
+          const absDelta = Math.abs(delta);
+          if (absDelta > maxColorDelta) maxColorDelta = absDelta;
+        }
+        colorsTransitioning = maxColorDelta > 1e-4;
+
+        // Smooth palette normalization ranges across 0.75s
+        const spanAlpha = Math.min(1.0, Math.max(0.001, 1 - Math.exp(-dt / 0.75)));
+        latestSpeedMin = latestSpeedMin * (1 - spanAlpha) + targetSpeedMin * spanAlpha;
+        latestSpeedSpan = latestSpeedSpan * (1 - spanAlpha) + targetSpeedSpan * spanAlpha;
+      }
 
       const state = useFrameStore.getState();
       const {
@@ -330,6 +377,13 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       if (!positions || bodyCount === 0) {
         if (lastBodyCount > 0) {
           displayPositions = new Float32Array(0);
+          blendStartPositions = new Float32Array(0);
+          blendTargetPositions = new Float32Array(0);
+          targetSpeeds = new Float32Array(0);
+          renderedSpeeds = new Float32Array(0);
+          hasInitialKeyframe = false;
+          blendActive = false;
+          colorsTransitioning = false;
           lastBodyCount = 0;
           bodyInstances.mesh.setEnabled(false);
           bodyInstances.pointMesh.setEnabled(false);
@@ -358,8 +412,43 @@ export const ThreeNBody = React.memo(function ThreeNBody({
           || lastBodyCount !== bodyCount
           || lastFrame < 0;
 
+        if (targetSpeeds.length !== bodyCount) {
+          targetSpeeds = new Float32Array(bodyCount);
+          renderedSpeeds = new Float32Array(bodyCount);
+        }
+
+        for (let i = 0; i < bodyCount; i++) {
+          const base = i * 3;
+          const vx = velocities[base];
+          const vy = velocities[base + 1];
+          const vz = velocities[base + 2];
+          targetSpeeds[i] = Math.sqrt(vx * vx + vy * vy + vz * vz);
+        }
+
+        const neededPercentileLen = Math.min(bodyCount, 1024);
+        if (percentileScratch.length < neededPercentileLen) {
+          percentileScratch = new Float32Array(neededPercentileLen);
+        }
+
+        const [speedMin, speedMax] = percentileRange(
+          targetSpeeds,
+          bodyCount,
+          0.05,
+          0.95,
+          percentileScratch
+        );
+        const speedSpan = Math.max(speedMax - speedMin, 1e-6);
+        targetSpeedMin = speedMin;
+        targetSpeedSpan = speedSpan;
+
+        if (isResetOrRewind || shouldSnapDisplay || latestSpeedSpan <= 1e-6) {
+          renderedSpeeds.set(targetSpeeds);
+          latestSpeedMin = targetSpeedMin;
+          latestSpeedSpan = targetSpeedSpan;
+        }
+
         if (shouldSnapDisplay) {
-          snapDisplayPositions(positions);
+          snapDisplayPositions(positions, targetSpeeds);
           orbitTrails.clear();
           vectorOverlays.clear('velocity');
           vectorOverlays.clear('acceleration');
@@ -378,49 +467,12 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         lastBodyCount = bodyCount;
 
         boundsRadius = computeBounds(positions, bodyCount, boundsCenter);
-        if (speedScratch.length !== bodyCount) {
-          speedScratch = new Float32Array(bodyCount);
-        }
         if (showAccelerationVectors) {
           if (accelerationVectorScratch.length !== bodyCount * 3) {
             accelerationVectorScratch = new Float32Array(bodyCount * 3);
           }
           if (accelerationMagnitudeScratch.length !== bodyCount) {
             accelerationMagnitudeScratch = new Float32Array(bodyCount);
-          }
-        }
-        const neededPercentileLen = Math.min(bodyCount, 1024);
-        if (percentileScratch.length < neededPercentileLen) {
-          percentileScratch = new Float32Array(neededPercentileLen);
-        }
-
-        for (let i = 0; i < bodyCount; i++) {
-          const base = i * 3;
-          const vx = velocities[base];
-          const vy = velocities[base + 1];
-          const vz = velocities[base + 2];
-          speedScratch[i] = Math.sqrt(vx * vx + vy * vy + vz * vz);
-        }
-
-        const [speedMin, speedMax] = percentileRange(
-          speedScratch,
-          bodyCount,
-          0.05,
-          0.95,
-          percentileScratch
-        );
-        const speedSpan = Math.max(speedMax - speedMin, 1e-6);
-
-        if (speedSpan > 1e-6) {
-          if (isResetOrRewind || latestSpeedSpan <= 1e-6 || lastFrame < 0) {
-            latestSpeedMin = speedMin;
-            latestSpeedSpan = speedSpan;
-          } else {
-            // Smooth the color palette normalization ranges across ~250ms
-            const spanAlpha = Math.min(1.0, Math.max(0.05, frameIntervalMs / 250));
-            const invSpanAlpha = 1 - spanAlpha;
-            latestSpeedMin = latestSpeedMin * invSpanAlpha + speedMin * spanAlpha;
-            latestSpeedSpan = latestSpeedSpan * invSpanAlpha + speedSpan * spanAlpha;
           }
         }
 
@@ -510,14 +562,14 @@ export const ThreeNBody = React.memo(function ThreeNBody({
           if (
             anchorPositions
             && latestVelocities
-            && speedScratch.length === lastBodyCount
+            && renderedSpeeds.length === lastBodyCount
             && lastBodyCount > 0
           ) {
             vectorOverlays.update(
               'velocity',
               anchorPositions,
               latestVelocities,
-              speedScratch,
+              renderedSpeeds,
               lastBodyCount,
               latestSpeedMin,
               latestSpeedSpan,
@@ -565,14 +617,14 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       if (
         showOrbitTrails
         && anchorPositions
-        && speedScratch.length === lastBodyCount
+        && renderedSpeeds.length === lastBodyCount
         && lastBodyCount > 0
-        && (frameChanged || displayPositionsChanged || orbitTrailsVisibilityChanged)
+        && (frameChanged || displayPositionsChanged || colorsTransitioning || orbitTrailsVisibilityChanged)
       ) {
         orbitTrails.update(
           frame,
           anchorPositions,
-          speedScratch,
+          renderedSpeeds,
           lastBodyCount,
           latestSpeedMin,
           latestSpeedSpan
@@ -585,19 +637,19 @@ export const ThreeNBody = React.memo(function ThreeNBody({
       }
       previousWorldGridVisible = showWorldGrid;
 
-      if (frameChanged || displayPositionsChanged) {
+      if (frameChanged || displayPositionsChanged || colorsTransitioning) {
         if (
           showVelocityVectors
           && anchorPositions
           && latestVelocities
-          && speedScratch.length === lastBodyCount
+          && renderedSpeeds.length === lastBodyCount
           && lastBodyCount > 0
         ) {
           vectorOverlays.update(
             'velocity',
             anchorPositions,
             latestVelocities,
-            speedScratch,
+            renderedSpeeds,
             lastBodyCount,
             latestSpeedMin,
             latestSpeedSpan,
@@ -630,8 +682,8 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         worldGrid.update(camera.position);
       }
 
-      // Refresh rendered positions when interpolating, after a new frame, or when camera distance bands change.
-      if (displayPositions.length > 0 && speedScratch.length === lastBodyCount && lastBodyCount > 0) {
+      // Refresh rendered positions and colors when interpolating at native viewport refresh rate.
+      if (displayPositions.length > 0 && renderedSpeeds.length === lastBodyCount && lastBodyCount > 0) {
         const camDx = camera.position.x - lastBodyUpdateCameraPos.x;
         const camDy = camera.position.y - lastBodyUpdateCameraPos.y;
         const camDz = camera.position.z - lastBodyUpdateCameraPos.z;
@@ -641,23 +693,22 @@ export const ThreeNBody = React.memo(function ThreeNBody({
         // Adaptive VBO update throttle for subframe interpolation:
         // Always update immediately on a fresh simulation frame (frameChanged === true) or camera move.
         // For subframe display interpolation:
-        // - Small to moderate clouds (<= 4000): full RAF rate (up to 150/240Hz).
-        // - Medium clouds (4000 - 12000): throttle to <= 60 FPS (min 16ms).
-        // - Giant clouds (> 12000, e.g. 30k Galaxy Collision): throttle to <= 35 FPS (min 28ms).
-        const minVboIntervalMs =
-          lastBodyCount > 12000 ? 28 : (lastBodyCount > 4000 ? 16 : 0);
+        // - High refresh rate screens (up to 144Hz) supported for clouds <= 15000 bodies.
+        // - For massive clouds (> 15000, e.g. 30k Galaxy Collision): cap subframe uploads to ~70 FPS (14ms)
+        //   to avoid saturating WebGL command queues while keeping subframe motion fluid.
+        const minVboIntervalMs = lastBodyCount > 15000 ? 14 : 0;
         const timeSinceLastVbo = now - lastVboUploadTime;
 
         const shouldUploadVbo =
           frameChanged
           || cameraSignificantlyMoved
-          || (displayPositionsChanged && timeSinceLastVbo >= minVboIntervalMs);
+          || ((displayPositionsChanged || colorsTransitioning) && timeSinceLastVbo >= minVboIntervalMs);
 
         if (shouldUploadVbo) {
-          const colorsDirty = frameChanged || cameraSignificantlyMoved;
+          const colorsDirty = frameChanged || cameraSignificantlyMoved || colorsTransitioning;
           bodyInstances.update(
             displayPositions,
-            speedScratch,
+            renderedSpeeds,
             lastBodyCount,
             latestSpeedMin,
             latestSpeedSpan,

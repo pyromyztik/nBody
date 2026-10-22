@@ -5,6 +5,8 @@ Real-time N-body simulation with a C++ physics backend and a React+Vite frontend
 The backend runs Barnes-Hut + Velocity Verlet and streams binary FlatBuffer frames over WebSocket.
 The frontend decodes frames and renders the system in 3D.
 
+**Live Demo**: [https://pranavaathrey.github.io/nBody/](https://pranavaathrey.github.io/nBody/) *(connects when backend server is active)*
+
 ## Project Features
 
 - C++ physics core using:
@@ -55,10 +57,18 @@ The backend supports two operating modes:
 
 #### 1. Hosted Multi-User Mode (Default)
 Run in public/hosted mode:
+
+Set the `SIM_MASTER_PASSWORD` environment variable before starting the backend so you can authenticate as Master:
 ```powershell
-./build/nbody_ws.exe
+# Windows (PowerShell)
+$env:SIM_MASTER_PASSWORD = "your_secure_password"
+.\build\nbody_ws.exe
+
+# Linux / macOS (Bash)
+export SIM_MASTER_PASSWORD="your_secure_password"
+./build/nbody_ws
 ```
-*(On Linux: `./build/nbody_ws`)*
+*(If unset, master password authentication is disabled).*
 
 - **Master Authentication**: One operator logs in as Master to configure and run simulations. Includes brute-force protection (maximum 5 attempts per day).
 - **Spectator Mode**: Up to 6 spectators can join concurrently to watch simulations live, inspect telemetry, and switch cameras without disrupting the simulation.

@@ -465,11 +465,15 @@ public:
                     }
 
                     if (message == "auth:logout") {
-                        if (data->isMaster) {
+                        if (data->isMaster || currentMasterWs_ == ws) {
                             std::cout << "[auth] Master logged out: " << masterName_ << "\n";
                             data->isMaster = false;
                             currentMasterWs_ = nullptr;
                             masterName_ = "";
+
+                            if (onMasterDisconnected_) {
+                                onMasterDisconnected_();
+                            }
 
                             if (activeSpectators_.size() < MAX_SPECTATORS) {
                                 data->isSpectator = true;
@@ -529,6 +533,7 @@ public:
                         std::cout << "[auth] Master disconnected (" << masterName_ << ")\n";
                         currentMasterWs_ = nullptr;
                         masterName_ = "";
+                        data->isMaster = false;
                         if (onMasterDisconnected_) {
                             onMasterDisconnected_();
                         }

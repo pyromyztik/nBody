@@ -199,23 +199,6 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
 
     const currentPositions = positionBuffers[activeBufferIdx];
 
-    const inv65535 = 1 / 65535;
-    const scaleX = extentX * inv65535;
-    const scaleY = extentY * inv65535;
-    const scaleZ = extentZ * inv65535;
-
-    for (let i = 0, j = 0; i < bodyCount; i++, j += 3) {
-      currentPositions[j] = minX + bodies[j] * scaleX;
-      currentPositions[j + 1] = minY + bodies[j + 1] * scaleY;
-      currentPositions[j + 2] = minZ + bodies[j + 2] * scaleZ;
-    }
-
-    let velocities = prev.velocities;
-    if (!velocities || velocities.length !== valueCount) {
-      velocities = new Float32Array(valueCount);
-      velocityFilterInitialized = false;
-    }
-
     const idxPrev1 = (activeBufferIdx + 2) % 3;
     const idxPrev2 = (activeBufferIdx + 1) % 3;
     const framePrev1 = historyFrames[idxPrev1];
@@ -226,6 +209,7 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
     const isConsecutive1 =
       framePrev1 >= 0 &&
       frame > framePrev1 &&
+      (frame - framePrev1) <= 3 &&
       bodyCount === prev.bodyCount &&
       posPrev1.length === valueCount;
 
@@ -234,6 +218,40 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
       framePrev2 >= 0 &&
       framePrev1 > framePrev2 &&
       posPrev2.length === valueCount;
+
+    const inv65535 = 1 / 65535;
+    const scaleX = extentX * inv65535;
+    const scaleY = extentY * inv65535;
+    const scaleZ = extentZ * inv65535;
+
+    // Sub-quantization continuous filter:
+    // Smooths out discrete 1-bit integer grid truncation noise (0 -> 1 -> 0 staircasing)
+    // into continuous sub-step floating point coordinates without lag.
+    if (isConsecutive1) {
+      const alpha = 0.85;
+      const invAlpha = 1 - alpha;
+      for (let i = 0, j = 0; i < bodyCount; i++, j += 3) {
+        const rawX = minX + bodies[j] * scaleX;
+        const rawY = minY + bodies[j + 1] * scaleY;
+        const rawZ = minZ + bodies[j + 2] * scaleZ;
+
+        currentPositions[j] = posPrev1[j] * invAlpha + rawX * alpha;
+        currentPositions[j + 1] = posPrev1[j + 1] * invAlpha + rawY * alpha;
+        currentPositions[j + 2] = posPrev1[j + 2] * invAlpha + rawZ * alpha;
+      }
+    } else {
+      for (let i = 0, j = 0; i < bodyCount; i++, j += 3) {
+        currentPositions[j] = minX + bodies[j] * scaleX;
+        currentPositions[j + 1] = minY + bodies[j + 1] * scaleY;
+        currentPositions[j + 2] = minZ + bodies[j + 2] * scaleZ;
+      }
+    }
+
+    let velocities = prev.velocities;
+    if (!velocities || velocities.length !== valueCount) {
+      velocities = new Float32Array(valueCount);
+      velocityFilterInitialized = false;
+    }
 
     const activeSimDt = simDt > 0 ? simDt : (prev.simDt > 0 ? prev.simDt : 0.016667);
 
@@ -348,13 +366,39 @@ export const useFrameStore = create<FrameState & FrameActions>((set, get) => ({
         : (state.userRole === 'master' || state.userRole === 'pending'
             ? state.userRole
             : (partial.hasMaster ? 'spectator' : 'spectator'));
+
+      const isSimRunningChangedToFalse =
+        partial.isSimRunning === false && state.isSimRunning === true;
+      const hasMasterChangedToFalse =
+        partial.hasMaster === false && state.hasMaster === true;
+      const isSpectatorAwaitingSim =
+        userRole === 'spectator' && partial.hasMaster === true && partial.isSimRunning === false && state.bodyCount > 0;
+
+      const shouldClearFrames =
+        userRole === 'spectator' &&
+        (isSimRunningChangedToFalse || hasMasterChangedToFalse || isSpectatorAwaitingSim);
+
+      if (shouldClearFrames) {
+        resetPositionHistory();
+      }
+
       return {
         ...state,
         ...partial,
         isLocallyHosted,
         userRole,
         activeScenarioTitle: partial.scenario || state.activeScenarioTitle,
-        hasReceivedAuthState: true
+        hasReceivedAuthState: true,
+        ...(shouldClearFrames
+          ? {
+              frame: 0,
+              bodyCount: 0,
+              positions: null,
+              velocities: null,
+              fps: 0,
+              hasSimControlSnapshot: false
+            }
+          : {})
       };
     }),
   setLastAuthError: (error: string | null) => set({ lastAuthError: error }),

@@ -545,7 +545,7 @@ export default function App() {
   // While a Master is active, all other connections act as spectators in simulation view (no landing page).
   // When no Master exists, all clients are immediately taken to the authentication landing page.
   useEffect(() => {
-    if (isLocallyHosted || userRole === 'master') {
+    if (isLocallyHosted || userRole === 'master' || userRole === 'pending') {
       return;
     }
 
@@ -615,13 +615,18 @@ export default function App() {
     };
   }, [route, status, isMaster, socketControls]);
 
-  // Auto-redirect if user reloaded or navigated to /sim but there is no running simulation and no active selection
+  // Auto-redirect if user reloaded or navigated to /sim but there is no running simulation and no active master or scenario
   useEffect(() => {
     if (!hasReceivedAuthState) return;
-    if (route === 'simulation' && !isSimRunning && activeScenarioSelection === null && userRole !== 'master' && userRole !== 'pending') {
+    // For master/operators: if on /sim with no running simulation and no active selection, return to landing console to select one
+    if (isMaster && route === 'simulation' && !isSimRunning && activeScenarioSelection === null) {
       navigateToRoute('landing', true);
     }
-  }, [hasReceivedAuthState, route, isSimRunning, activeScenarioSelection, userRole, navigateToRoute]);
+    // For unauthenticated spectators: if on /sim and there is no active master, redirect to landing
+    if (!isMaster && !hasMaster && route === 'simulation') {
+      navigateToRoute('landing', true);
+    }
+  }, [hasReceivedAuthState, route, isSimRunning, activeScenarioSelection, isMaster, hasMaster, navigateToRoute]);
 
   const activeScenarioStartMessage = useMemo(() => {
     if (activeScenarioSelection === null) {

@@ -540,12 +540,12 @@ const STABLE_FAMILY_OPTIONS: readonly DropdownOption<StableOrbitFamily>[] =
   }));
 
 const GALAXY_VARIANT_OPTIONS: readonly DropdownOption<GalaxyVariant>[] = [
-  { value: '10k', label: '10K Bodies (Lightweight)' },
+  { value: '10k', label: '10K Bodies' },
   { value: '30k', label: '30K Bodies' }
 ];
 
 const GALAXY_COLLISION_VARIANT_OPTIONS: readonly DropdownOption<GalaxyCollisionVariant>[] = [
-  { value: '15k', label: '15K Bodies (Lightweight)' },
+  { value: '15k', label: '15K Bodies' },
   { value: '30k', label: '30K Bodies' }
 ];
 
